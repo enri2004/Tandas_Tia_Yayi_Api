@@ -1,6 +1,6 @@
-import { Cloudinary_Subir } from "../utils/cloudinary.js";
+import { Cloudinary_Subir } from "../utils/imgCloud.js";
 import UserModel from "../models/User_models.js";
-import cloudinary from "../config/Cloudinary.js";
+import cloudinary from "../config/cloudinary.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 

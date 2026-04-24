@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import Tandas_model from "../models/Tandas_models.js";
-import { Cloudinary_Subir } from "../utils/cloudinary.js";
+import { Cloudinary_Subir } from "../utils/imgCloud.js";
 import cloudinary from "../config/cloudinary.js";
 import UserModel from "../models/User_models.js";
 import NotiModel from "../models/Noti_models.js";
