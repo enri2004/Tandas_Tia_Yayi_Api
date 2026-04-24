@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: servers_api",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/servers.js",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    }
+  ]
+}

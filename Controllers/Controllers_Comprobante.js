@@ -2,7 +2,7 @@ import cloudinary from "../config/cloudinary.js";
 import ComprobanteModel from "../models/Comprobante_models.js";
 import TandasModel from "../models/Tandas_models.js";
 import UserModel from "../models/User_models.js";
-import { Cloudinary_Subir } from "../utils/cloudinary.js";
+import { Cloudinary_Subir } from "../utils/Cloudinary.js";
 import { crearNotificacionYHistorial, crearHistorial } from "../utils/notificationService.js";
 
 export const CrearComprobante = async (req, res) => {

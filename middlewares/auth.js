@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = "123456789abc";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 export const validarToken = (req, res, next) => {
   try {
