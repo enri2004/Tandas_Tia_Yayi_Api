@@ -4,9 +4,37 @@ import cloudinary from "../config/cloudinary.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = "123456789abc";
+const JWT_SECRET = process.env.JWT_SECRET || "123456789abc";
 const PERFIL_SELECT =
-  "nombre edad correo usuario tipoUsuario rol imagen telefono direccion ultimoAcceso amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
+  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
+
+const obtenerFotoUsuario = (usuario) => usuario?.fotoPerfil || usuario?.imagen || "";
+
+const obtenerPerfilActualizado = (usuario) =>
+  typeof usuario?.perfilActualizado === "boolean"
+    ? usuario.perfilActualizado
+    : Boolean(
+        usuario?.telefono ||
+          usuario?.direccion ||
+          usuario?.fotoPerfil ||
+          usuario?.imagen
+      );
+
+const obtenerMostrarModalActualizarDatos = (usuario) =>
+  typeof usuario?.mostrarModalActualizarDatos === "boolean"
+    ? usuario.mostrarModalActualizarDatos
+    : !obtenerPerfilActualizado(usuario);
+
+const normalizarBooleano = (valor) => {
+  if (typeof valor === "boolean") return valor;
+  if (typeof valor === "string") {
+    const normalizado = valor.trim().toLowerCase();
+    if (normalizado === "true") return true;
+    if (normalizado === "false") return false;
+  }
+
+  return undefined;
+};
 
 const construirPerfilUsuario = (usuario) => ({
   id: usuario._id,
@@ -16,10 +44,13 @@ const construirPerfilUsuario = (usuario) => ({
   usuario: usuario.usuario,
   tipoUsuario: usuario.tipoUsuario,
   rol: usuario.rol,
-  imagen: usuario.imagen,
+  imagen: obtenerFotoUsuario(usuario),
+  fotoPerfil: obtenerFotoUsuario(usuario),
   telefono: usuario.telefono,
   direccion: usuario.direccion,
   ultimoAcceso: usuario.ultimoAcceso,
+  perfilActualizado: obtenerPerfilActualizado(usuario),
+  mostrarModalActualizarDatos: obtenerMostrarModalActualizarDatos(usuario),
   totalAmigos: Array.isArray(usuario.amigos) ? usuario.amigos.length : 0,
   totalSolicitudesEnviadas: Array.isArray(usuario.solicitudesEnviadas)
     ? usuario.solicitudesEnviadas.length
@@ -37,22 +68,61 @@ export const NuevoUser = async (req, res) => {
     let imagen = "";
     let public_id = "";
 
-    const {
-      nombre,
-      edad,
-      correo,
-      usuario,
-      password,
-      telefono,
-      direccion,
-      tipoUsuario,
-      rol,
-    } = req.body;
+    const datos = req.body;
+    const nombre = datos.nombre?.toString().trim() || "";
+    const edadRaw = datos.edad;
+    const correo = datos.correo?.toString().trim().toLowerCase() || "";
+    const usuario = datos.usuario?.toString().trim() || "";
+    const password = datos.password?.toString() || "";
+    const telefono = datos.telefono?.toString().trim() || "";
+    const direccion = datos.direccion?.toString().trim() || "";
+    const tipoUsuario = datos.tipoUsuario?.toString().trim() || "";
+    const rol = datos.rol?.toString().trim() || "usuario";
+    const edad =
+      edadRaw === undefined || edadRaw === null || edadRaw === ""
+        ? null
+        : Number(edadRaw);
 
     if (!nombre || !correo || !usuario || !password) {
       return res.status(400).json({
         ok: false,
         mensaje: "Nombre, correo, usuario y contraseña son obligatorios",
+      });
+    }
+
+    const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formatoCorreo.test(correo)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El formato del correo no es valido",
+      });
+    }
+
+    if (password.trim().length < 6) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "La contrasena debe tener al menos 6 caracteres",
+      });
+    }
+
+    if (edad !== null && Number.isNaN(edad)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "La edad debe ser un numero valido",
+      });
+    }
+
+    if (tipoUsuario && !["crear", "unirse"].includes(tipoUsuario)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El tipo de usuario no es valido",
+      });
+    }
+
+    if (!["admin", "usuario"].includes(rol)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El rol no es valido",
       });
     }
 
@@ -83,16 +153,19 @@ export const NuevoUser = async (req, res) => {
 
     const nuevoUsuario = new UserModel({
       nombre,
-      edad: edad || null,
+      edad,
       correo,
       usuario,
       password: passwordHash,
-      telefono: telefono || "",
-      direccion: direccion || "",
-      tipoUsuario: tipoUsuario || "",
-      rol: rol || "usuario",
+      telefono,
+      direccion,
+      tipoUsuario,
+      rol,
       imagen,
+      fotoPerfil: imagen,
       public_id,
+      perfilActualizado: false,
+      mostrarModalActualizarDatos: true,
     });
 
     await nuevoUsuario.save();
@@ -107,11 +180,39 @@ export const NuevoUser = async (req, res) => {
         usuario: nuevoUsuario.usuario,
         rol: nuevoUsuario.rol,
         tipoUsuario: nuevoUsuario.tipoUsuario,
-        imagen: nuevoUsuario.imagen,
+        imagen: obtenerFotoUsuario(nuevoUsuario),
+        fotoPerfil: obtenerFotoUsuario(nuevoUsuario),
+        perfilActualizado: obtenerPerfilActualizado(nuevoUsuario),
+        mostrarModalActualizarDatos: obtenerMostrarModalActualizarDatos(nuevoUsuario),
       },
+      token: jwt.sign(
+        {
+          id: nuevoUsuario._id,
+          rol: nuevoUsuario.rol,
+          correo: nuevoUsuario.correo,
+        },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      ),
     });
   } catch (error) {
     console.error(error);
+
+    if (error?.code === 11000) {
+      const campoDuplicado = Object.keys(error.keyPattern || {})[0];
+      const mensaje =
+        campoDuplicado === "correo"
+          ? "El correo ya esta registrado"
+          : campoDuplicado === "usuario"
+          ? "El nombre de usuario ya existe"
+          : "Ya existe un registro con esos datos";
+
+      return res.status(400).json({
+        ok: false,
+        mensaje,
+      });
+    }
+
     res.status(500).json({
       ok: false,
       mensaje: "No se guardaron los datos del usuario",
@@ -182,7 +283,10 @@ export const LoginUser = async (req, res) => {
         usuario: usuarioEncontrado.usuario,
         rol: usuarioEncontrado.rol,
         tipoUsuario: usuarioEncontrado.tipoUsuario,
-        imagen: usuarioEncontrado.imagen,
+        imagen: obtenerFotoUsuario(usuarioEncontrado),
+        fotoPerfil: obtenerFotoUsuario(usuarioEncontrado),
+        perfilActualizado: obtenerPerfilActualizado(usuarioEncontrado),
+        mostrarModalActualizarDatos: obtenerMostrarModalActualizarDatos(usuarioEncontrado),
       },
     });
   } catch (error) {
@@ -294,6 +398,8 @@ export const ActualizarPerfilUsuario = async (req, res) => {
       telefono,
       direccion,
       tipoUsuario,
+      perfilActualizado,
+      mostrarModalActualizarDatos,
     } = req.body;
 
     if (correo && correo !== usuario.correo) {
@@ -331,6 +437,7 @@ export const ActualizarPerfilUsuario = async (req, res) => {
 
       const resultado = await Cloudinary_Subir(req.file);
       usuario.imagen = resultado.url;
+      usuario.fotoPerfil = resultado.url;
       usuario.public_id = resultado.public_id;
     }
 
@@ -341,6 +448,32 @@ export const ActualizarPerfilUsuario = async (req, res) => {
     if (typeof telefono === "string") usuario.telefono = telefono.trim();
     if (typeof direccion === "string") usuario.direccion = direccion.trim();
     if (typeof tipoUsuario === "string") usuario.tipoUsuario = tipoUsuario;
+
+    const perfilActualizadoNormalizado = normalizarBooleano(perfilActualizado);
+    const mostrarModalNormalizado = normalizarBooleano(mostrarModalActualizarDatos);
+
+    if (typeof perfilActualizadoNormalizado === "boolean") {
+      usuario.perfilActualizado = perfilActualizadoNormalizado;
+    }
+
+    if (typeof mostrarModalNormalizado === "boolean") {
+      usuario.mostrarModalActualizarDatos = mostrarModalNormalizado;
+    }
+
+    const huboCambiosPerfil =
+      Boolean(req.file) ||
+      nombre !== undefined ||
+      edad !== undefined ||
+      correo !== undefined ||
+      nombreUsuario !== undefined ||
+      telefono !== undefined ||
+      direccion !== undefined ||
+      tipoUsuario !== undefined;
+
+    if (huboCambiosPerfil) {
+      usuario.perfilActualizado = true;
+      usuario.mostrarModalActualizarDatos = false;
+    }
 
     await usuario.save();
 
@@ -432,7 +565,8 @@ export const BuscarUsuarios = async (req, res) => {
 
 export const GuardarPushToken = async (req, res) => {
   try {
-    const { expoPushToken, platform = "" } = req.body;
+    const { expoPushToken } = req.body;
+    const authId = req.usuario?.id;
 
     if (!expoPushToken) {
       return res.status(400).json({
@@ -440,32 +574,25 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
-    const usuario = await UserModel.findById(req.params.id);
+    if (!authId) {
+      return res.status(401).json({
+        mensaje: "No hay usuario autenticado",
+      });
+    }
+
+    const usuario = await UserModel.findByIdAndUpdate(
+      authId,
+      {
+        $addToSet: { expoPushTokens: expoPushToken },
+      },
+      { new: true }
+    );
 
     if (!usuario) {
       return res.status(404).json({
         mensaje: "Usuario no encontrado",
       });
     }
-
-    const existente = usuario.expoPushTokens.find(
-      (item) => item.token === expoPushToken
-    );
-
-    if (existente) {
-      existente.activo = true;
-      existente.platform = platform || existente.platform;
-      existente.lastRegisteredAt = new Date();
-    } else {
-      usuario.expoPushTokens.push({
-        token: expoPushToken,
-        platform,
-        activo: true,
-        lastRegisteredAt: new Date(),
-      });
-    }
-
-    await usuario.save();
 
     res.json({
       mensaje: "ExpoPushToken guardado correctamente",
@@ -694,6 +821,7 @@ export const Actualizar = async (req, res) => {
 
       const resultado = await Cloudinary_Subir(req.file);
       datos.imagen = resultado.url;
+      datos.fotoPerfil = resultado.url;
       datos.public_id = resultado.public_id;
     }
 

@@ -16,6 +16,10 @@ const TIPOS_NOTIFICACION = [
   "usuario_inactivo",
   "notificaciones_sin_leer",
   "pago_pendiente",
+  "pago",
+  "estado_pago",
+  "solicitud_amistad",
+  "respuesta_amistad",
 ];
 
 const NotiSchame = new mongoose.Schema(

@@ -23,12 +23,12 @@ router.post("/NuevoUser", upload.single("imagen"),NuevoUser);
 router.post("/login", LoginUser);
 router.get("/",ObtenerUsuario);
 router.get("/buscar", validarToken, BuscarUsuarios);
+router.post("/push-token", validarToken, GuardarPushToken);
 router.get("/perfil/:id", validarToken, ObtenerPerfilUsuario);
 router.get("/:id", ObtenerUsuarioPorId);
 router.put("/perfil/:id", validarToken, upload.single("imagen"), ActualizarPerfilUsuario);
 router.put("/perfil/:id/correo", validarToken, ActualizarCorreoUsuario);
 router.put("/perfil/:id/password", validarToken, ActualizarPasswordUsuario);
-router.put("/:id/push-token", GuardarPushToken);
 router.put("/:id/ultimo-acceso", ActualizarUltimoAcceso);
 router.delete("/delete/:id", Eliminar);
 router.put("/:id",upload.single("imagen"),Actualizar)

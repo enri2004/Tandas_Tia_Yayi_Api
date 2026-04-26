@@ -2,11 +2,7 @@ import HistorialModel from "../models/Historial_models.js";
 import NotiModel from "../models/Noti_models.js";
 import TandasModel from "../models/Tandas_models.js";
 import UserModel from "../models/User_models.js";
-
-const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
-
-const esExpoPushTokenValido = (token = "") =>
-  typeof token === "string" && token.startsWith("ExponentPushToken[");
+import { enviarPushNotification } from "./enviarPushNotification.js";
 
 export const crearHistorial = async ({
   tandaId = null,
@@ -58,54 +54,6 @@ export const obtenerUsuariosObjetivo = async ({
   return UserModel.find();
 };
 
-export const enviarPushExpo = async ({
-  tokens = [],
-  title,
-  body,
-  data = {},
-}) => {
-  const tokensValidos = tokens.filter(esExpoPushTokenValido);
-
-  if (!tokensValidos.length) {
-    return { ok: true, enviados: 0, tickets: [] };
-  }
-
-  const mensajes = tokensValidos.map((to) => ({
-    to,
-    sound: "default",
-    title,
-    body,
-    data,
-  }));
-
-  try {
-    const response = await fetch(EXPO_PUSH_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Accept-encoding": "gzip, deflate",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(mensajes),
-    });
-
-    const resultado = await response.json();
-    return {
-      ok: response.ok,
-      enviados: tokensValidos.length,
-      tickets: resultado?.data || [],
-      error: response.ok ? "" : JSON.stringify(resultado),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      enviados: 0,
-      tickets: [],
-      error: error.message,
-    };
-  }
-};
-
 export const crearNotificaciones = async ({
   destinatarios = [],
   remitenteId = null,
@@ -116,6 +64,8 @@ export const crearNotificaciones = async ({
   texto,
   detalles = "",
   metadata = {},
+  pushTitle,
+  pushBody,
   pushData = {},
 }) => {
   if (!destinatarios.length) {
@@ -140,13 +90,15 @@ export const crearNotificaciones = async ({
     notificaciones.map(async (notificacion, index) => {
       const usuario = destinatarios[index];
       const tokens = (usuario.expoPushTokens || [])
-        .filter((item) => item.activo)
-        .map((item) => item.token);
+        .map((item) =>
+          typeof item === "string" ? item : item?.token || ""
+        )
+        .filter(Boolean);
 
-      const push = await enviarPushExpo({
+      const push = await enviarPushNotification({
         tokens,
-        title: titulo,
-        body: texto,
+        title: pushTitle || titulo,
+        body: pushBody || texto,
         data: {
           notificacionId: notificacion._id.toString(),
           tipo,
@@ -175,6 +127,9 @@ export const crearNotificacionYHistorial = async ({
   texto,
   detalles = "",
   metadata = {},
+  pushTitle,
+  pushBody,
+  pushData = {},
 }) => {
   const destinatarios = await obtenerUsuariosObjetivo({ userIds, target, tandaId });
 
@@ -204,7 +159,10 @@ export const crearNotificacionYHistorial = async ({
     pushData: {
       tandaId,
       historialId: historial._id.toString(),
+      ...pushData,
     },
+    pushTitle,
+    pushBody,
   });
 
   return { historial, notificaciones };

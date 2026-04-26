@@ -1,28 +1,5 @@
 import mongoose from "mongoose";
 
-const PushTokenSchema = new mongoose.Schema(
-  {
-    token: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    platform: {
-      type: String,
-      default: "",
-    },
-    activo: {
-      type: Boolean,
-      default: true,
-    },
-    lastRegisteredAt: {
-      type: Date,
-      default: Date.now,
-    },
-  },
-  { _id: false }
-);
-
 const UserSchema = new mongoose.Schema(
   {
     nombre: {
@@ -65,6 +42,10 @@ const UserSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    fotoPerfil: {
+      type: String,
+      default: "",
+    },
     public_id: {
       type: String,
       default: "",
@@ -81,8 +62,16 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    perfilActualizado: {
+      type: Boolean,
+      default: false,
+    },
+    mostrarModalActualizarDatos: {
+      type: Boolean,
+      default: true,
+    },
     expoPushTokens: {
-      type: [PushTokenSchema],
+      type: [String],
       default: [],
     },
     amigos: {

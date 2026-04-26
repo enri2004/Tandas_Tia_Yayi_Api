@@ -1,7 +1,8 @@
 import mongoose from "mongoose";
 import UserModel from "../models/User_models.js";
+import { crearNotificacionYHistorial } from "../utils/notificationService.js";
 
-const AMIGO_SELECT = "nombre edad correo usuario tipoUsuario rol imagen telefono direccion ultimoAcceso";
+const AMIGO_SELECT = "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil telefono direccion ultimoAcceso";
 
 const esObjectIdValido = (valor) => mongoose.Types.ObjectId.isValid(valor);
 
@@ -23,7 +24,8 @@ const perfilPublico = (usuario) => ({
   usuario: usuario.usuario,
   tipoUsuario: usuario.tipoUsuario,
   rol: usuario.rol,
-  imagen: usuario.imagen,
+  imagen: usuario.fotoPerfil || usuario.imagen,
+  fotoPerfil: usuario.fotoPerfil || usuario.imagen,
   telefono: usuario.telefono,
   direccion: usuario.direccion,
   ultimoAcceso: usuario.ultimoAcceso,
@@ -99,6 +101,28 @@ export const EnviarSolicitudAmistad = async (req, res) => {
     receptor.solicitudesRecibidas.addToSet(emisor._id);
 
     await Promise.all([emisor.save(), receptor.save()]);
+
+    await crearNotificacionYHistorial({
+      userIds: [receptor._id],
+      usuarioId: receptor._id,
+      actorId: emisor._id,
+      tipo: "solicitud_amistad",
+      origen: "evento",
+      titulo: "Nueva solicitud de amistad",
+      texto: `${emisor.nombre} te envio una solicitud de amistad.`,
+      detalles: "Abre tus solicitudes para responder.",
+      metadata: {
+        solicitudId: `${emisor._id}-${receptor._id}`,
+        usuarioId: emisor._id.toString(),
+      },
+      pushTitle: "Nueva solicitud de amistad",
+      pushBody: `${emisor.nombre} te envio una solicitud de amistad.`,
+      pushData: {
+        tipo: "solicitud_amistad",
+        solicitudId: `${emisor._id}-${receptor._id}`,
+        usuarioId: emisor._id.toString(),
+      },
+    });
 
     res.status(200).json({
       ok: true,
@@ -197,6 +221,28 @@ export const AceptarSolicitudAmistad = async (req, res) => {
 
     await Promise.all([usuario.save(), solicitante.save()]);
 
+    await crearNotificacionYHistorial({
+      userIds: [solicitante._id],
+      usuarioId: solicitante._id,
+      actorId: usuario._id,
+      tipo: "respuesta_amistad",
+      origen: "evento",
+      titulo: "Solicitud aceptada",
+      texto: `${usuario.nombre} acepto tu solicitud de amistad.`,
+      detalles: "Ya pueden verse en la seccion de amigos.",
+      metadata: {
+        solicitudId: `${solicitante._id}-${usuario._id}`,
+        estado: "aceptado",
+      },
+      pushTitle: "Solicitud aceptada",
+      pushBody: `${usuario.nombre} acepto tu solicitud de amistad.`,
+      pushData: {
+        tipo: "respuesta_amistad",
+        solicitudId: `${solicitante._id}-${usuario._id}`,
+        estado: "aceptado",
+      },
+    });
+
     res.status(200).json({
       ok: true,
       mensaje: "Solicitud aceptada correctamente",
@@ -245,6 +291,28 @@ export const RechazarSolicitudAmistad = async (req, res) => {
     );
 
     await Promise.all([usuario.save(), solicitante.save()]);
+
+    await crearNotificacionYHistorial({
+      userIds: [solicitante._id],
+      usuarioId: solicitante._id,
+      actorId: usuario._id,
+      tipo: "respuesta_amistad",
+      origen: "evento",
+      titulo: "Solicitud rechazada",
+      texto: `${usuario.nombre} rechazo tu solicitud de amistad.`,
+      detalles: "Puedes intentar de nuevo mas adelante.",
+      metadata: {
+        solicitudId: `${solicitante._id}-${usuario._id}`,
+        estado: "rechazado",
+      },
+      pushTitle: "Solicitud rechazada",
+      pushBody: `${usuario.nombre} rechazo tu solicitud de amistad.`,
+      pushData: {
+        tipo: "respuesta_amistad",
+        solicitudId: `${solicitante._id}-${usuario._id}`,
+        estado: "rechazado",
+      },
+    });
 
     res.status(200).json({
       ok: true,

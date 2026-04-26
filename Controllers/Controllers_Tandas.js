@@ -367,7 +367,8 @@ export const ObtenerResumenDashboardAdmin = async (req, res) => {
         nombre: admin.nombre,
         correo: admin.correo,
         usuario: admin.usuario,
-        imagen: admin.imagen,
+        imagen: admin.fotoPerfil || admin.imagen,
+        fotoPerfil: admin.fotoPerfil || admin.imagen,
         rol: admin.rol,
         tipoUsuario: admin.tipoUsuario,
       },
@@ -717,8 +718,16 @@ export const UnirseATanda = async (req, res) => {
     );
 
     if (yaEsta) {
-      return res.status(400).json({
-        mensaje: "El usuario ya pertenece a esta tanda",
+      const tandaActualizada = await Tandas_model.findById(id)
+        .populate("creador", "nombre correo imagen")
+        .populate("integrantes", "nombre correo imagen")
+        .populate("turnos.usuario", "nombre correo imagen");
+
+      return res.status(200).json({
+        mensaje: "Ya estas unido a esta tanda",
+        tanda: tandaActualizada,
+        yaUnido: true,
+        totalIntegrantes: tandaActualizada?.integrantes?.length || 0,
       });
     }
 
@@ -728,11 +737,15 @@ export const UnirseATanda = async (req, res) => {
       });
     }
 
-    tanda.integrantes.push(userId);
+    const integrantesActualizados = [
+      ...new Set((tanda.integrantes || []).map((item) => item.toString()).concat(userId.toString())),
+    ];
+
+    tanda.integrantes = integrantesActualizados;
     tanda.turnos =
       tanda.integrantes.length === Number(tanda.participantes || 0)
         ? construirTurnos({
-            integrantes: tanda.integrantes,
+          integrantes: tanda.integrantes,
             fecha: tanda.fecha,
             frecuencia: tanda.frecuencia || "quincenal",
             pagoRealizados: tanda.pagoRealizados || 0,
@@ -766,6 +779,7 @@ export const UnirseATanda = async (req, res) => {
     res.status(200).json({
       mensaje: "Te uniste a la tanda correctamente",
       tanda: tandaActualizada,
+      yaUnido: false,
       totalIntegrantes: tandaActualizada?.integrantes?.length || 0,
     });
   } catch (error) {
@@ -1059,7 +1073,8 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
         nombre: usuario.nombre,
         correo: usuario.correo,
         usuario: usuario.usuario,
-        imagen: usuario.imagen,
+        imagen: usuario.fotoPerfil || usuario.imagen,
+        fotoPerfil: usuario.fotoPerfil || usuario.imagen,
         rol: usuario.rol,
         tipoUsuario: usuario.tipoUsuario,
       },

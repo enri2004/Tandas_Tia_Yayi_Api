@@ -9,7 +9,7 @@ export const CrearComprobante = async (req, res) => {
   try {
     const {
       tandaId,
-      usuarioId,
+      usuarioId: usuarioIdBody,
       monto,
       metodoPago = "transferencia",
       banco = "",
@@ -17,6 +17,7 @@ export const CrearComprobante = async (req, res) => {
       referencia = "",
       personaRecibe = "",
     } = req.body;
+    const usuarioId = req.usuario?.id || usuarioIdBody;
 
     if (!tandaId || !usuarioId) {
       return res.status(400).json({
@@ -65,14 +66,21 @@ export const CrearComprobante = async (req, res) => {
       tandaId,
       usuarioId,
       actorId: usuarioId,
-      tipo: "comprobante_enviado",
+      tipo: "pago",
       origen: "evento",
-      titulo: "Nuevo comprobante enviado",
-      texto: `${usuario.nombre} envio un comprobante para la tanda ${tanda.nombre}.`,
+      titulo: "Nuevo pago recibido",
+      texto: `${usuario.nombre} subio un comprobante de pago.`,
       detalles: "Revisa y valida el pago desde el panel administrativo.",
       metadata: {
         comprobanteId: comprobante._id,
         estado: comprobante.estado,
+      },
+      pushTitle: "Nuevo pago recibido",
+      pushBody: `${usuario.nombre} subio un comprobante de pago.`,
+      pushData: {
+        tipo: "pago",
+        tandaId: tandaId.toString(),
+        comprobanteId: comprobante._id.toString(),
       },
     });
 
@@ -122,7 +130,8 @@ export const ObtenerComprobantes = async (req, res) => {
 
 export const RevisarComprobante = async (req, res) => {
   try {
-    const { estado, adminId, observacionesAdmin = "" } = req.body;
+    const { estado, adminId: adminIdBody, observacionesAdmin = "" } = req.body;
+    const adminId = req.usuario?.id || adminIdBody;
 
     if (!["aprobado", "rechazado"].includes(estado)) {
       return res.status(400).json({
@@ -152,20 +161,16 @@ export const RevisarComprobante = async (req, res) => {
       });
     }
 
-    const tipo = estado === "aprobado" ? "comprobante_aprobado" : "comprobante_rechazado";
-    const titulo =
-      estado === "aprobado" ? "Tu comprobante fue aprobado" : "Tu comprobante fue rechazado";
+    const titulo = estado === "aprobado" ? "Pago aprobado" : "Pago rechazado";
     const texto =
-      estado === "aprobado"
-        ? `Tu comprobante de ${comprobante.tanda.nombre} fue aprobado correctamente.`
-        : `Tu comprobante de ${comprobante.tanda.nombre} fue rechazado.`;
+      estado === "aprobado" ? "Tu pago fue aprobado." : "Tu pago fue rechazado. Revisa el motivo.";
 
     await crearNotificacionYHistorial({
       userIds: [comprobante.usuario._id],
       tandaId: comprobante.tanda._id,
       usuarioId: comprobante.usuario._id,
       actorId: adminId || null,
-      tipo,
+      tipo: "estado_pago",
       origen: "evento",
       titulo,
       texto,
@@ -176,6 +181,14 @@ export const RevisarComprobante = async (req, res) => {
           : "Revisa el motivo y vuelve a subir tu comprobante."),
       metadata: {
         comprobanteId: comprobante._id,
+        estado,
+      },
+      pushTitle: titulo,
+      pushBody: texto,
+      pushData: {
+        tipo: "estado_pago",
+        tandaId: comprobante.tanda._id.toString(),
+        comprobanteId: comprobante._id.toString(),
         estado,
       },
     });
