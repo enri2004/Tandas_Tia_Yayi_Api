@@ -566,7 +566,10 @@ export const BuscarUsuarios = async (req, res) => {
 export const GuardarPushToken = async (req, res) => {
   try {
     const { expoPushToken } = req.body;
-    const authId = req.usuario?.id;
+    const authId = req.user?.id || req.usuario?.id || req.user?._id;
+
+    console.log("[Push][Backend] Usuario autenticado:", authId || "SIN_USUARIO");
+    console.log("[Push][Backend] Token recibido:", expoPushToken || "VACIO");
 
     if (!expoPushToken) {
       return res.status(400).json({
@@ -580,13 +583,16 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
+    const usuarioAntes = await UserModel.findById(authId).select("expoPushTokens");
+    console.log("[Push][Backend] Tokens antes:", usuarioAntes?.expoPushTokens || []);
+
     const usuario = await UserModel.findByIdAndUpdate(
       authId,
       {
         $addToSet: { expoPushTokens: expoPushToken },
       },
       { new: true }
-    );
+    ).select("-password");
 
     if (!usuario) {
       return res.status(404).json({
@@ -594,14 +600,19 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
+    console.log("[Push][Backend] Tokens despues:", usuario.expoPushTokens || []);
+
     res.json({
-      mensaje: "ExpoPushToken guardado correctamente",
+      mensaje: "Push token guardado correctamente",
+      expoPushTokens: usuario.expoPushTokens,
       totalTokens: usuario.expoPushTokens.length,
+      usuario,
     });
   } catch (error) {
+    console.error("[Push][Backend] Error guardando push token:", error);
     res.status(500).json({
-      mensaje: "No se pudo guardar el token push",
-      detalle: error.message,
+      mensaje: "Error guardando push token",
+      error: error.message,
     });
   }
 };
