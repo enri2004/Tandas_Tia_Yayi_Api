@@ -21,6 +21,18 @@ const ComprobanteSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    periodoPago: {
+      type: Number,
+      default: 1,
+    },
+    fechaPago: {
+      type: Date,
+      default: Date.now,
+    },
+    horaPago: {
+      type: String,
+      default: "",
+    },
     metodoPago: {
       type: String,
       enum: ["transferencia", "presencial"],
@@ -56,6 +68,10 @@ const ComprobanteSchema = new mongoose.Schema(
       default: "pendiente",
     },
     observacionesAdmin: {
+      type: String,
+      default: "",
+    },
+    motivoRechazo: {
       type: String,
       default: "",
     },

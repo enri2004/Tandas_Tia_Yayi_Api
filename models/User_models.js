@@ -35,8 +35,8 @@ const UserSchema = new mongoose.Schema(
     },
     rol: {
       type: String,
-      enum: ["admin", "usuario"],
-      default: "usuario",
+      enum: ["admin", "usuario", null],
+      default: null,
     },
     imagen: {
       type: String,
@@ -45,6 +45,11 @@ const UserSchema = new mongoose.Schema(
     fotoPerfil: {
       type: String,
       default: "",
+    },
+    proveedorAuth: {
+      type: String,
+      enum: ["google", "facebook", "local", ""],
+      default: "local",
     },
     public_id: {
       type: String,

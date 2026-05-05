@@ -8,6 +8,8 @@ import {
   ObtenerTandasPorAdmin,
   ObtenerTandasPorUsuario,
   NuevaTanda,
+  MarcarTurnoEntregado,
+  NotificarEntregaTurno,
   UnirseATanda,
   UnirseATandaPorCodigo,
   putTanda,
@@ -32,6 +34,9 @@ router.post("/nueva", validarToken, upload.single("imagen"), NuevaTanda);
 router.put("/:id", validarToken, putTanda);
 router.put("/:id/finalizar", validarToken, soloAdmin, FinalizarTanda);
 router.put("/:id/turnos", validarToken, soloAdmin, AsignarTurnosTanda);
+router.post("/:id/turnos-cobro/:numeroTurno/notificar-entrega", validarToken, soloAdmin, NotificarEntregaTurno);
+router.post("/:tandaId/turnos/:turnoId/notificar-entrega", validarToken, soloAdmin, NotificarEntregaTurno);
+router.put("/:tandaId/turnos/:turnoId/entregado", validarToken, soloAdmin, MarcarTurnoEntregado);
 router.put("/:id/unirse", validarToken, UnirseATanda);
 router.put("/codigo/:codigo/unirse", validarToken, UnirseATandaPorCodigo);
 router.delete("/:id", validarToken, deleteTanda);

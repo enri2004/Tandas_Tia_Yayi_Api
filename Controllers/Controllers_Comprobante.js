@@ -1,4 +1,4 @@
-import cloudinary from "../config/cloudinary.js";
+﻿import cloudinary from "../config/cloudinary.js";
 import ComprobanteModel from "../models/Comprobante_models.js";
 import TandasModel from "../models/Tandas_models.js";
 import UserModel from "../models/User_models.js";
@@ -11,6 +11,7 @@ export const CrearComprobante = async (req, res) => {
       tandaId,
       usuarioId: usuarioIdBody,
       monto,
+      periodoPago,
       metodoPago = "transferencia",
       banco = "",
       clabe = "",
@@ -39,6 +40,27 @@ export const CrearComprobante = async (req, res) => {
       });
     }
 
+    const periodoSeleccionado = Number(periodoPago || 1);
+    const periodo = Array.isArray(tanda.calendarioPagos)
+      ? tanda.calendarioPagos.find((item) => Number(item.numeroPago) === periodoSeleccionado)
+      : null;
+
+    if (!periodo) {
+      return res.status(404).json({
+        mensaje: "No se encontró el periodo de pago solicitado",
+      });
+    }
+
+    const usuarioPendiente = (periodo.usuariosPendientes || []).some(
+      (item) => item.toString() === usuarioId.toString()
+    );
+
+    if (!usuarioPendiente) {
+      return res.status(400).json({
+        mensaje: "Este usuario no tiene pago pendiente en el periodo seleccionado",
+      });
+    }
+
     let comprobanteUrl = "";
     let public_id = "";
 
@@ -52,6 +74,12 @@ export const CrearComprobante = async (req, res) => {
       tanda: tandaId,
       usuario: usuarioId,
       monto: Number(monto || 0),
+      periodoPago: periodoSeleccionado,
+      fechaPago: new Date(),
+      horaPago: new Date().toLocaleTimeString("es-MX", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
       metodoPago,
       banco,
       clabe,
@@ -62,21 +90,22 @@ export const CrearComprobante = async (req, res) => {
     });
 
     await crearNotificacionYHistorial({
-      target: "admins",
+      userIds: tanda.creador?._id ? [tanda.creador._id] : [],
       tandaId,
       usuarioId,
       actorId: usuarioId,
       tipo: "pago",
       origen: "evento",
       titulo: "Nuevo pago recibido",
-      texto: `${usuario.nombre} subio un comprobante de pago.`,
+      texto: `${usuario.nombre} subi? un comprobante de pago.`,
       detalles: "Revisa y valida el pago desde el panel administrativo.",
       metadata: {
         comprobanteId: comprobante._id,
         estado: comprobante.estado,
+        periodoPago: comprobante.periodoPago,
       },
       pushTitle: "Nuevo pago recibido",
-      pushBody: `${usuario.nombre} subio un comprobante de pago.`,
+      pushBody: `${usuario.nombre} subi? un comprobante de pago.`,
       pushData: {
         tipo: "pago",
         tandaId: tandaId.toString(),
@@ -96,6 +125,8 @@ export const CrearComprobante = async (req, res) => {
     });
   }
 };
+
+export const RegistrarPago = CrearComprobante;
 
 export const ObtenerComprobantes = async (req, res) => {
   try {
@@ -130,7 +161,7 @@ export const ObtenerComprobantes = async (req, res) => {
 
 export const RevisarComprobante = async (req, res) => {
   try {
-    const { estado, adminId: adminIdBody, observacionesAdmin = "" } = req.body;
+    const { estado, adminId: adminIdBody, observacionesAdmin = "", motivoRechazo = "" } = req.body;
     const adminId = req.usuario?.id || adminIdBody;
 
     if (!["aprobado", "rechazado"].includes(estado)) {
@@ -140,7 +171,7 @@ export const RevisarComprobante = async (req, res) => {
     }
 
     const comprobante = await ComprobanteModel.findById(req.params.id)
-      .populate("tanda", "nombre")
+      .populate("tanda", "nombre calendarioPagos pagoRealizados")
       .populate("usuario", "nombre correo");
 
     if (!comprobante) {
@@ -149,16 +180,44 @@ export const RevisarComprobante = async (req, res) => {
       });
     }
 
+    const estadoPrevio = comprobante.estado;
     comprobante.estado = estado;
     comprobante.admin = adminId || null;
     comprobante.observacionesAdmin = observacionesAdmin;
+    comprobante.motivoRechazo = estado === "rechazado" ? motivoRechazo || observacionesAdmin : "";
     comprobante.fechaRevision = new Date();
     await comprobante.save();
 
-    if (estado === "aprobado") {
-      await TandasModel.findByIdAndUpdate(comprobante.tanda._id, {
-        $inc: { pagoRealizados: 1 },
-      });
+    if (estado === "aprobado" && estadoPrevio !== "aprobado") {
+      const tanda = await TandasModel.findById(comprobante.tanda._id);
+
+      if (tanda) {
+        const periodo = (tanda.calendarioPagos || []).find(
+          (item) => Number(item.numeroPago) === Number(comprobante.periodoPago)
+        );
+
+        if (periodo) {
+          const usuarioId = comprobante.usuario._id.toString();
+          const yaPago = (periodo.usuariosPagaron || []).some(
+            (item) => item.toString() === usuarioId
+          );
+
+          if (!yaPago) {
+            periodo.usuariosPagaron.push(comprobante.usuario._id);
+          }
+
+          periodo.usuariosPendientes = (periodo.usuariosPendientes || []).filter(
+            (item) => item.toString() !== usuarioId
+          );
+
+          if ((periodo.usuariosPendientes || []).length === 0) {
+            periodo.estado = "pagado";
+          }
+        }
+
+        tanda.pagoRealizados = Number(tanda.pagoRealizados || 0) + 1;
+        await tanda.save();
+      }
     }
 
     const titulo = estado === "aprobado" ? "Pago aprobado" : "Pago rechazado";
@@ -177,11 +236,12 @@ export const RevisarComprobante = async (req, res) => {
       detalles:
         observacionesAdmin ||
         (estado === "aprobado"
-          ? "El pago ya se reflejo en el historial de la tanda."
+          ? "El pago ya se reflej? en el historial de la tanda."
           : "Revisa el motivo y vuelve a subir tu comprobante."),
       metadata: {
         comprobanteId: comprobante._id,
         estado,
+        periodoPago: comprobante.periodoPago,
       },
       pushTitle: titulo,
       pushBody: texto,
@@ -203,6 +263,22 @@ export const RevisarComprobante = async (req, res) => {
       detalle: error.message,
     });
   }
+};
+
+export const AprobarComprobante = async (req, res) => {
+  req.body = {
+    ...req.body,
+    estado: "aprobado",
+  };
+  return RevisarComprobante(req, res);
+};
+
+export const RechazarComprobante = async (req, res) => {
+  req.body = {
+    ...req.body,
+    estado: "rechazado",
+  };
+  return RevisarComprobante(req, res);
 };
 
 export const EliminarComprobante = async (req, res) => {
@@ -227,7 +303,7 @@ export const EliminarComprobante = async (req, res) => {
       actorId: req.usuario?.id || null,
       tipo: "comprobante_eliminado",
       titulo: "Comprobante eliminado",
-      descripcion: "Se elimino un comprobante del sistema.",
+      descripcion: "Se elimin? un comprobante del sistema.",
       metadata: {
         comprobanteId: comprobante._id,
       },
@@ -243,3 +319,7 @@ export const EliminarComprobante = async (req, res) => {
     });
   }
 };
+
+
+
+

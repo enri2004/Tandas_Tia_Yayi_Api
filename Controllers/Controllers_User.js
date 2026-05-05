@@ -1,12 +1,13 @@
-import { Cloudinary_Subir } from "../utils/imgCloud.js";
+﻿import { Cloudinary_Subir } from "../utils/imgCloud.js";
 import UserModel from "../models/User_models.js";
 import cloudinary from "../config/cloudinary.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET || "123456789abc";
 const PERFIL_SELECT =
-  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
+  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil proveedorAuth telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
 
 const obtenerFotoUsuario = (usuario) => usuario?.fotoPerfil || usuario?.imagen || "";
 
@@ -46,6 +47,7 @@ const construirPerfilUsuario = (usuario) => ({
   rol: usuario.rol,
   imagen: obtenerFotoUsuario(usuario),
   fotoPerfil: obtenerFotoUsuario(usuario),
+  proveedorAuth: usuario.proveedorAuth || "local",
   telefono: usuario.telefono,
   direccion: usuario.direccion,
   ultimoAcceso: usuario.ultimoAcceso,
@@ -61,6 +63,45 @@ const construirPerfilUsuario = (usuario) => ({
   createdAt: usuario.createdAt,
   updatedAt: usuario.updatedAt,
 });
+
+const construirRespuestaAutenticacion = (usuario, mensaje) => ({
+  ok: true,
+  mensaje,
+  token: jwt.sign(
+    {
+      id: usuario._id,
+      rol: usuario.rol,
+      correo: usuario.correo,
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" }
+  ),
+  usuario: construirPerfilUsuario(usuario),
+});
+
+const generarUsernameBase = ({ correo = "", nombre = "" }) => {
+  const baseCorreo = correo.split("@")[0] || "";
+  const baseNombre = nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+
+  return (baseCorreo || baseNombre || "usuario").slice(0, 18);
+};
+
+const generarUsernameDisponible = async ({ correo = "", nombre = "" }) => {
+  const base = generarUsernameBase({ correo, nombre }) || "usuario";
+  let candidato = base;
+  let contador = 1;
+
+  while (await UserModel.findOne({ usuario: candidato }).select("_id")) {
+    contador += 1;
+    candidato = `${base}${contador}`.slice(0, 24);
+  }
+
+  return candidato;
+};
 
 // Crear usuario
 export const NuevoUser = async (req, res) => {
@@ -94,35 +135,35 @@ export const NuevoUser = async (req, res) => {
     if (!formatoCorreo.test(correo)) {
       return res.status(400).json({
         ok: false,
-        mensaje: "El formato del correo no es valido",
+        mensaje: "El formato del correo no es válido",
       });
     }
 
     if (password.trim().length < 6) {
       return res.status(400).json({
         ok: false,
-        mensaje: "La contrasena debe tener al menos 6 caracteres",
+        mensaje: "La contraseña debe tener al menos 6 caracteres",
       });
     }
 
     if (edad !== null && Number.isNaN(edad)) {
       return res.status(400).json({
         ok: false,
-        mensaje: "La edad debe ser un numero valido",
+        mensaje: "La edad debe ser un número válido",
       });
     }
 
     if (tipoUsuario && !["crear", "unirse"].includes(tipoUsuario)) {
       return res.status(400).json({
         ok: false,
-        mensaje: "El tipo de usuario no es valido",
+        mensaje: "El tipo de usuario no es válido",
       });
     }
 
     if (!["admin", "usuario"].includes(rol)) {
       return res.status(400).json({
         ok: false,
-        mensaje: "El rol no es valido",
+        mensaje: "El rol no es válido",
       });
     }
 
@@ -163,6 +204,7 @@ export const NuevoUser = async (req, res) => {
       rol,
       imagen,
       fotoPerfil: imagen,
+      proveedorAuth: "local",
       public_id,
       perfilActualizado: false,
       mostrarModalActualizarDatos: true,
@@ -170,31 +212,9 @@ export const NuevoUser = async (req, res) => {
 
     await nuevoUsuario.save();
 
-    res.status(201).json({
-      ok: true,
-      mensaje: "Usuario guardado correctamente",
-      usuario: {
-        id: nuevoUsuario._id,
-        nombre: nuevoUsuario.nombre,
-        correo: nuevoUsuario.correo,
-        usuario: nuevoUsuario.usuario,
-        rol: nuevoUsuario.rol,
-        tipoUsuario: nuevoUsuario.tipoUsuario,
-        imagen: obtenerFotoUsuario(nuevoUsuario),
-        fotoPerfil: obtenerFotoUsuario(nuevoUsuario),
-        perfilActualizado: obtenerPerfilActualizado(nuevoUsuario),
-        mostrarModalActualizarDatos: obtenerMostrarModalActualizarDatos(nuevoUsuario),
-      },
-      token: jwt.sign(
-        {
-          id: nuevoUsuario._id,
-          rol: nuevoUsuario.rol,
-          correo: nuevoUsuario.correo,
-        },
-        JWT_SECRET,
-        { expiresIn: "7d" }
-      ),
-    });
+    res.status(201).json(
+      construirRespuestaAutenticacion(nuevoUsuario, "Usuario guardado correctamente")
+    );
   } catch (error) {
     console.error(error);
 
@@ -202,7 +222,7 @@ export const NuevoUser = async (req, res) => {
       const campoDuplicado = Object.keys(error.keyPattern || {})[0];
       const mensaje =
         campoDuplicado === "correo"
-          ? "El correo ya esta registrado"
+          ? "El correo ya está registrado"
           : campoDuplicado === "usuario"
           ? "El nombre de usuario ya existe"
           : "Ya existe un registro con esos datos";
@@ -299,6 +319,145 @@ export const LoginUser = async (req, res) => {
   }
 };
 
+export const AuthSocialUser = async (req, res) => {
+  try {
+    const {
+      nombre = "",
+      correo = "",
+      fotoPerfil = "",
+      proveedorAuth = "",
+    } = req.body;
+
+    const nombreNormalizado = nombre.toString().trim();
+    const correoNormalizado = correo.toString().trim().toLowerCase();
+    const proveedor = proveedorAuth.toString().trim().toLowerCase();
+
+    if (!nombreNormalizado || !correoNormalizado || !proveedor) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "nombre, correo y proveedorAuth son obligatorios",
+      });
+    }
+
+    if (!["google", "facebook"].includes(proveedor)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El proveedorAuth no es válido",
+      });
+    }
+
+    const formatoCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formatoCorreo.test(correoNormalizado)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El formato del correo no es válido",
+      });
+    }
+
+    let usuario = await UserModel.findOne({ correo: correoNormalizado });
+    let mensaje = "Inicio de sesión social correcto";
+
+    if (!usuario) {
+      const passwordTemporal = crypto.randomBytes(24).toString("hex");
+      const salt = await bcrypt.genSalt(10);
+      const usernameDisponible = await generarUsernameDisponible({
+        correo: correoNormalizado,
+        nombre: nombreNormalizado,
+      });
+
+      usuario = await UserModel.create({
+        nombre: nombreNormalizado,
+        correo: correoNormalizado,
+        usuario: usernameDisponible,
+        password: await bcrypt.hash(passwordTemporal, salt),
+        proveedorAuth: proveedor,
+        fotoPerfil: fotoPerfil?.toString?.().trim?.() || "",
+        imagen: fotoPerfil?.toString?.().trim?.() || "",
+        edad: null,
+        direccion: "",
+        telefono: "",
+        rol: null,
+        tipoUsuario: "",
+        perfilActualizado: false,
+        mostrarModalActualizarDatos: true,
+        expoPushTokens: [],
+      });
+
+      mensaje = "Usuario social creado correctamente";
+    } else {
+      usuario.nombre = nombreNormalizado || usuario.nombre;
+      usuario.proveedorAuth = proveedor;
+
+      const fotoProveedor = fotoPerfil?.toString?.().trim?.() || "";
+      if (fotoProveedor) {
+        usuario.fotoPerfil = fotoProveedor;
+        usuario.imagen = fotoProveedor;
+      }
+
+      await usuario.save();
+    }
+
+    usuario.ultimoAcceso = new Date();
+    await usuario.save();
+
+    res.status(200).json(
+      construirRespuestaAutenticacion(usuario, mensaje)
+    );
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      mensaje: "No se pudo autenticar al usuario con red social",
+      detalle: error.message,
+    });
+  }
+};
+
+export const ActualizarRolUsuario = async (req, res) => {
+  try {
+    const authId = req.usuario?.id;
+    const { rol } = req.body;
+
+    if (!authId) {
+      return res.status(401).json({
+        ok: false,
+        mensaje: "No hay un usuario autenticado",
+      });
+    }
+
+    if (!["admin", "user", "usuario"].includes(rol)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El rol enviado no es válido",
+      });
+    }
+
+    const rolNormalizado = rol === "admin" ? "admin" : "usuario";
+    const tipoUsuario = rolNormalizado === "admin" ? "crear" : "unirse";
+    const usuario = await UserModel.findById(authId);
+
+    if (!usuario) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "Usuario no encontrado",
+      });
+    }
+
+    usuario.rol = rolNormalizado;
+    usuario.tipoUsuario = tipoUsuario;
+    await usuario.save();
+
+    res.status(200).json(
+      construirRespuestaAutenticacion(usuario, "Rol actualizado correctamente")
+    );
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      mensaje: "No se pudo actualizar el rol",
+      detalle: error.message,
+    });
+  }
+};
+
 // Obtener todos
 export const ObtenerUsuario = async (req, res) => {
   try {
@@ -368,6 +527,38 @@ export const ObtenerPerfilUsuario = async (req, res) => {
   }
 };
 
+export const ObtenerUsuarioActual = async (req, res) => {
+  try {
+    const authId = req.usuario?.id;
+
+    if (!authId) {
+      return res.status(401).json({
+        ok: false,
+        mensaje: "No hay un usuario autenticado",
+      });
+    }
+
+    const usuario = await UserModel.findById(authId).select(PERFIL_SELECT);
+
+    if (!usuario) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "Usuario no encontrado",
+      });
+    }
+
+    return res.status(200).json({
+      usuario: construirPerfilUsuario(usuario),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      mensaje: "No se pudo obtener la sesión actual",
+      detalle: error.message,
+    });
+  }
+};
+
 export const ActualizarPerfilUsuario = async (req, res) => {
   try {
     const { id } = req.params;
@@ -411,7 +602,7 @@ export const ActualizarPerfilUsuario = async (req, res) => {
       if (correoExistente) {
         return res.status(400).json({
           ok: false,
-          mensaje: "El correo ya esta registrado",
+          mensaje: "El correo ya está registrado",
         });
       }
     }
@@ -501,7 +692,7 @@ export const BuscarUsuarios = async (req, res) => {
     if (!q) {
       return res.status(200).json({
         ok: true,
-        mensaje: "Busqueda realizada correctamente",
+        mensaje: "Búsqueda realizada correctamente",
         usuarios: [],
       });
     }
@@ -540,7 +731,7 @@ export const BuscarUsuarios = async (req, res) => {
 
     res.status(200).json({
       ok: true,
-      mensaje: "Busqueda realizada correctamente",
+      mensaje: "Búsqueda realizada correctamente",
       usuarios: usuarios.map((item) => ({
         id: item._id,
         nombre: item.nombre,
@@ -579,7 +770,7 @@ export const GuardarPushToken = async (req, res) => {
 
     if (!authId) {
       return res.status(401).json({
-        mensaje: "No hay usuario autenticado",
+        mensaje: "No hay un usuario autenticado",
       });
     }
 
@@ -644,7 +835,7 @@ export const ActualizarCorreoUsuario = async (req, res) => {
     if (!formatoCorreo.test(correoNormalizado)) {
       return res.status(400).json({
         ok: false,
-        mensaje: "El formato del correo no es valido",
+        mensaje: "El formato del correo no es válido",
       });
     }
 
@@ -665,7 +856,7 @@ export const ActualizarCorreoUsuario = async (req, res) => {
     if (correoExistente) {
       return res.status(400).json({
         ok: false,
-        mensaje: "El correo ya esta registrado",
+        mensaje: "El correo ya está registrado",
       });
     }
 
@@ -858,3 +1049,20 @@ export const Actualizar = async (req, res) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

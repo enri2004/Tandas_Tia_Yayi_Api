@@ -1,15 +1,18 @@
 import express from "express";
 import {
   Actualizar,
+  ActualizarRolUsuario,
   ActualizarPerfilUsuario,
   ActualizarCorreoUsuario,
   ActualizarUltimoAcceso,
   ActualizarPasswordUsuario,
+  AuthSocialUser,
   BuscarUsuarios,
   Eliminar,
   GuardarPushToken,
   LoginUser,
   NuevoUser,
+  ObtenerUsuarioActual,
   ObtenerPerfilUsuario,
   ObtenerUsuario,
   ObtenerUsuarioPorId,
@@ -21,9 +24,12 @@ const router = express.Router();
 
 router.post("/NuevoUser", upload.single("imagen"),NuevoUser);
 router.post("/login", LoginUser);
+router.post("/auth/social", AuthSocialUser);
 router.get("/",ObtenerUsuario);
+router.get("/me", validarToken, ObtenerUsuarioActual);
 router.get("/buscar", validarToken, BuscarUsuarios);
 router.post("/push-token", validarToken, GuardarPushToken);
+router.put("/rol", validarToken, ActualizarRolUsuario);
 router.get("/perfil/:id", validarToken, ObtenerPerfilUsuario);
 router.get("/:id", ObtenerUsuarioPorId);
 router.put("/perfil/:id", validarToken, upload.single("imagen"), ActualizarPerfilUsuario);

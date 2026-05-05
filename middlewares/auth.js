@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "123456789abc";
 
 export const validarToken = (req, res, next) => {
   try {
@@ -14,7 +14,6 @@ export const validarToken = (req, res, next) => {
     }
 
     const token = authHeader.split(" ")[1];
-
     const decoded = jwt.verify(token, JWT_SECRET);
 
     req.usuario = decoded;

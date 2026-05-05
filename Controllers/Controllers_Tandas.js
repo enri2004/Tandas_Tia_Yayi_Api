@@ -7,81 +7,55 @@ import NotiModel from "../models/Noti_models.js";
 import ComprobanteModel from "../models/Comprobante_models.js";
 import HistorialModel from "../models/Historial_models.js";
 import { crearNotificacionYHistorial } from "../utils/notificationService.js";
+import {
+  generarCalendarioPagos,
+  generarTurnosCobro,
+  sumarFecha,
+} from "../utils/tandas/generarCalendarioTanda.js";
 
 const parseFechaTanda = (valor) => {
-  if (!valor) {
-    return null;
-  }
-
-  const directa = new Date(valor);
-  if (!Number.isNaN(directa.getTime())) {
-    return directa;
-  }
-
-  if (typeof valor === "string") {
-    const partes = valor.split(/[\/\-]/).map((item) => item.trim());
-    if (partes.length === 3) {
-      const [primero, segundo, tercero] = partes.map(Number);
-      if ([primero, segundo, tercero].every((item) => !Number.isNaN(item))) {
-        const fecha = new Date(tercero, segundo - 1, primero);
-        if (!Number.isNaN(fecha.getTime())) {
-          return fecha;
-        }
-      }
-    }
-  }
-
-  return null;
+  if (!valor) return null;
+  const fecha = new Date(valor);
+  return Number.isNaN(fecha.getTime()) ? null : fecha;
 };
 
-const formatearFechaISO = (fecha) => {
-  if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
-    return "";
-  }
-
+const formatearFechaTexto = (valor) => {
+  const fecha = parseFechaTanda(valor);
+  if (!fecha) return "";
   return fecha.toISOString().split("T")[0];
 };
 
-const sumarFrecuencia = (fechaBase, frecuencia = "quincenal", pasos = 0) => {
-  const fecha = new Date(fechaBase);
-
-  if (frecuencia === "semanal") {
-    fecha.setDate(fecha.getDate() + pasos * 7);
-    return fecha;
-  }
-
-  if (frecuencia === "mensual") {
-    fecha.setMonth(fecha.getMonth() + pasos);
-    return fecha;
-  }
-
-  fecha.setDate(fecha.getDate() + pasos * 14);
-  return fecha;
-};
-
-const construirTurnos = ({
+const construirProgramacionTanda = ({
   integrantes = [],
-  fecha,
+  fechaInicio,
   frecuencia = "quincenal",
-  pagoRealizados = 0,
-  estadosPorUsuario = new Map(),
+  montoPago = 0,
 }) => {
-  const fechaBase = parseFechaTanda(fecha);
+  const calendarioPagos = generarCalendarioPagos({
+    fechaInicio,
+    frecuencia,
+    totalPeriodos: integrantes.length,
+    montoPago,
+    integrantes,
+  });
 
-  if (!fechaBase) {
-    return [];
-  }
+  const turnosCobro = generarTurnosCobro({
+    fechaInicio,
+    frecuencia,
+    montoPago,
+    integrantes,
+  });
 
-  return integrantes.map((usuarioId, index) => ({
-    usuario: usuarioId,
-    orden: index + 1,
-    fechaProgramada: formatearFechaISO(
-      sumarFrecuencia(fechaBase, frecuencia, index)
-    ),
-    estadoPago:
-      estadosPorUsuario.get(usuarioId?.toString?.() || usuarioId) ||
-      (index < Number(pagoRealizados || 0) ? "pagado" : "pendiente"),
-  }));
+  return {
+    calendarioPagos,
+    turnosCobro,
+    turnos: turnosCobro.map((turno) => ({
+      usuario: turno.usuarioId,
+      orden: turno.numeroTurno,
+      fechaProgramada: formatearFechaTexto(turno.fechaCobro),
+      estadoPago: turno.estado === "entregado" ? "pagado" : "pendiente",
+    })),
+  };
 };
 
 const mezclarIds = (ids = []) => {
@@ -91,17 +65,6 @@ const mezclarIds = (ids = []) => {
     [copia[index], copia[randomIndex]] = [copia[randomIndex], copia[index]];
   }
   return copia;
-};
-
-const obtenerEstadosTurnosPorUsuario = (turnos = []) => {
-  const estados = new Map();
-  turnos.forEach((turno) => {
-    const usuarioId = turno?.usuario?._id?.toString?.() || turno?.usuario?.toString?.();
-    if (usuarioId) {
-      estados.set(usuarioId, turno.estadoPago || "pendiente");
-    }
-  });
-  return estados;
 };
 
 const obtenerIdUsuarioTurno = (turno) =>
@@ -191,13 +154,34 @@ const enriquecerTandasAdmin = ({ tandas = [], adminId = "", comprobantes = [] })
       descripcion: tanda.descripcion || "",
       codigoInvitacion: tanda.codigoInvitacion || "",
       pago: pagoPorPersona,
+      montoPago: Number(tanda.montoPago) || pagoPorPersona,
       participantes: Number(tanda.participantes) || 0,
       fecha: tanda.fecha || "",
+      fechaInicio: formatearFechaTexto(tanda.fechaInicio || tanda.fecha),
       frecuencia: tanda.frecuencia || "quincenal",
       imagen: tanda.imagen || "",
       estado: tanda.estado,
       estadoTexto: tanda.estado === false ? "Finalizada" : "Activa",
       pagoRealizados,
+      calendarioPagos: Array.isArray(tanda.calendarioPagos)
+        ? tanda.calendarioPagos.map((item) => ({
+            numeroPago: item.numeroPago || 0,
+            fechaPago: item.fechaPago,
+            fechaPagoTexto: formatearFechaTexto(item.fechaPago),
+            monto: Number(item.monto) || 0,
+            estado: item.estado || "pendiente",
+            usuariosPagaron: Array.isArray(item.usuariosPagaron)
+              ? item.usuariosPagaron.map((usuario) => usuario?._id || usuario)
+              : [],
+            usuariosPendientes: Array.isArray(item.usuariosPendientes)
+              ? item.usuariosPendientes.map((usuario) => usuario?._id || usuario)
+              : [],
+          }))
+        : [],
+      claveInterbancaria: tanda.claveInterbancaria || "",
+      nombreBeneficiario: tanda.nombreBeneficiario || "",
+      banco: tanda.banco || "",
+      conceptoPago: tanda.conceptoPago || "",
       totalIntegrantes,
       totalEsperado,
       totalRecaudado,
@@ -213,6 +197,18 @@ const enriquecerTandasAdmin = ({ tandas = [], adminId = "", comprobantes = [] })
         orden: turno?.orden || 0,
         fechaProgramada: turno?.fechaProgramada || "",
         estadoPago: turno?.estadoPago || "pendiente",
+      })),
+      turnosCobro: (tanda.turnosCobro || []).map((turno) => ({
+        numeroTurno: turno?.numeroTurno || 0,
+        usuarioId: turno?.usuarioId?._id || turno?.usuarioId,
+        nombre: turno?.usuarioId?.nombre || "",
+        correo: turno?.usuarioId?.correo || "",
+        imagen: turno?.usuarioId?.imagen || "",
+        fechaCobro: turno?.fechaCobro || "",
+        fechaCobroTexto: formatearFechaTexto(turno?.fechaCobro),
+        montoARecibir: Number(turno?.montoARecibir) || 0,
+        estado: turno?.estado || "pendiente",
+        fechaEntrega: turno?.fechaEntrega || null,
       })),
       integrantes: (tanda.integrantes || []).map((integrante, index) => ({
         _id: integrante?._id || integrante,
@@ -252,6 +248,7 @@ export const ObtenerTandasPorAdmin = async (req, res) => {
     const tandas = await Tandas_model.find({ creador: adminId })
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen")
       .sort({ createdAt: -1 });
 
@@ -311,6 +308,7 @@ export const ObtenerResumenDashboardAdmin = async (req, res) => {
     const tandas = await Tandas_model.find({ creador: adminId })
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen")
       .sort({ createdAt: -1 });
 
@@ -439,6 +437,7 @@ export const ObtenerTandaPorId = async (req, res) => {
     const tanda = await Tandas_model.findById(req.params.id)
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
     if (!tanda) {
       return res.status(404).json({
@@ -469,6 +468,7 @@ export const ObtenerTandaPorCodigo = async (req, res) => {
     const tanda = await Tandas_model.findOne({ codigoInvitacion: codigo })
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
 
     if (!tanda) {
@@ -500,8 +500,10 @@ export const NuevaTanda = async (req, res) => {
     const {
       nombre,
       pago,
+      montoPago,
       participantes,
       fecha,
+      fechaInicio,
       frecuencia,
       descripcion,
       pagoRealizados,
@@ -509,13 +511,27 @@ export const NuevaTanda = async (req, res) => {
       estado,
       creador,
       integrantes,
+      claveInterbancaria,
+      nombreBeneficiario,
+      banco,
+      conceptoPago,
     } = req.body;
     const authId = req.usuario?.id;
     const authRol = req.usuario?.rol;
 
-    if (!nombre || !pago || !participantes || !fecha || !creador) {
+    const fechaInicioNormalizada = fechaInicio || fecha;
+    const montoPagoNormalizado = Number(montoPago || pago);
+    const fechaInicioDate = parseFechaTanda(fechaInicioNormalizada);
+
+    if (!nombre || !pago || !participantes || !fechaInicioNormalizada || !creador) {
       return res.status(400).json({
         mensaje: "Faltan datos obligatorios",
+      });
+    }
+
+    if (!fechaInicioDate) {
+      return res.status(400).json({
+        mensaje: "La fecha de inicio no es valida",
       });
     }
 
@@ -600,30 +616,35 @@ export const NuevaTanda = async (req, res) => {
     }
 
     const codigoInvitacion = await obtenerCodigoUnicoTanda(nombre);
-
-    const tandaCompleta = integrantesSinDuplicados.length === participantesNumero;
+    const programacionInicial = construirProgramacionTanda({
+      integrantes: integrantesSinDuplicados,
+      fechaInicio: fechaInicioNormalizada,
+      frecuencia: frecuencia || "quincenal",
+      montoPago: montoPagoNormalizado,
+    });
 
     const nuevaTanda = new Tandas_model({
       nombre,
       pago: pagoNumero,
+      montoPago: montoPagoNormalizado,
       participantes: participantesNumero,
-      fecha,
+      fecha: formatearFechaTexto(fechaInicioDate),
+      fechaInicio: fechaInicioDate,
       frecuencia: frecuencia || "quincenal",
       descripcion: descripcion || "",
       codigoInvitacion,
+      calendarioPagos: programacionInicial.calendarioPagos,
+      claveInterbancaria: claveInterbancaria || "",
+      nombreBeneficiario: nombreBeneficiario || "",
+      banco: banco || "",
+      conceptoPago: conceptoPago || "",
       pagoRealizados: Number(pagoRealizados) || 0,
       turno: Number(turno) || 1,
       estado: typeof estado === "boolean" ? estado : true,
       creador,
       integrantes: integrantesSinDuplicados,
-      turnos: tandaCompleta
-        ? construirTurnos({
-            integrantes: integrantesSinDuplicados,
-            fecha,
-            frecuencia: frecuencia || "quincenal",
-            pagoRealizados: Number(pagoRealizados) || 0,
-          })
-        : [],
+      turnosCobro: programacionInicial.turnosCobro,
+      turnos: programacionInicial.turnos,
       imagen,
       public_id,
     });
@@ -721,6 +742,7 @@ export const UnirseATanda = async (req, res) => {
       const tandaActualizada = await Tandas_model.findById(id)
         .populate("creador", "nombre correo imagen")
         .populate("integrantes", "nombre correo imagen")
+        .populate("turnosCobro.usuarioId", "nombre correo imagen")
         .populate("turnos.usuario", "nombre correo imagen");
 
       return res.status(200).json({
@@ -742,21 +764,32 @@ export const UnirseATanda = async (req, res) => {
     ];
 
     tanda.integrantes = integrantesActualizados;
-    tanda.turnos =
-      tanda.integrantes.length === Number(tanda.participantes || 0)
-        ? construirTurnos({
-          integrantes: tanda.integrantes,
-            fecha: tanda.fecha,
-            frecuencia: tanda.frecuencia || "quincenal",
-            pagoRealizados: tanda.pagoRealizados || 0,
-            estadosPorUsuario: obtenerEstadosTurnosPorUsuario(tanda.turnos || []),
-          })
-        : [];
+    const yaTieneCalendario =
+      Array.isArray(tanda.calendarioPagos) &&
+      tanda.calendarioPagos.length > 0 &&
+      Array.isArray(tanda.turnosCobro) &&
+      tanda.turnosCobro.length > 0;
+
+    if (
+      tanda.integrantes.length === Number(tanda.participantes || 0) &&
+      !yaTieneCalendario
+    ) {
+      const programacion = construirProgramacionTanda({
+        integrantes: tanda.integrantes,
+        fechaInicio: tanda.fechaInicio || tanda.fecha,
+        frecuencia: tanda.frecuencia || "quincenal",
+        montoPago: Number(tanda.montoPago) || Number(tanda.pago) || 0,
+      });
+      tanda.calendarioPagos = programacion.calendarioPagos;
+      tanda.turnosCobro = programacion.turnosCobro;
+      tanda.turnos = programacion.turnos;
+    }
     await tanda.save();
 
     const tandaActualizada = await Tandas_model.findById(id)
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
 
     await crearNotificacionYHistorial({
@@ -853,19 +886,22 @@ export const AsignarTurnosTanda = async (req, res) => {
     }
 
     tanda.integrantes = ordenFinal;
-    tanda.turnos = construirTurnos({
+    const programacion = construirProgramacionTanda({
       integrantes: ordenFinal,
-      fecha: tanda.fecha,
+      fechaInicio: tanda.fechaInicio || tanda.fecha,
       frecuencia: tanda.frecuencia || "quincenal",
-      pagoRealizados: tanda.pagoRealizados || 0,
-      estadosPorUsuario: obtenerEstadosTurnosPorUsuario(tanda.turnos || []),
+      montoPago: Number(tanda.montoPago) || Number(tanda.pago) || 0,
     });
+    tanda.calendarioPagos = programacion.calendarioPagos;
+    tanda.turnosCobro = programacion.turnosCobro;
+    tanda.turnos = programacion.turnos;
 
     await tanda.save();
 
     const tandaActualizada = await Tandas_model.findById(id)
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
 
     await crearNotificacionYHistorial({
@@ -926,6 +962,145 @@ export const UnirseATandaPorCodigo = async (req, res) => {
   }
 };
 
+export const NotificarEntregaTurno = async (req, res) => {
+  try {
+    const { tandaId, turnoId, id, numeroTurno } = req.params;
+    const tandaParam = tandaId || id;
+    const turnoParam = turnoId || numeroTurno;
+    const authId = req.usuario?.id;
+    const authRol = req.usuario?.rol;
+
+    const tanda = await Tandas_model.findById(tandaParam)
+      .populate("turnosCobro.usuarioId", "nombre correo imagen");
+
+    if (!tanda) {
+      return res.status(404).json({
+        mensaje: "Tanda no encontrada",
+      });
+    }
+
+    if (
+      authRol !== "admin" ||
+      !authId ||
+      tanda.creador?.toString() !== authId.toString()
+    ) {
+      return res.status(403).json({
+        mensaje: "No tienes permiso para notificar esta entrega",
+      });
+    }
+
+    const turno = (tanda.turnosCobro || []).find(
+      (item) => Number(item.numeroTurno) === Number(turnoParam)
+    );
+
+    if (!turno?.usuarioId) {
+      return res.status(404).json({
+        mensaje: "No se encontro el turno de cobro solicitado",
+      });
+    }
+
+    await crearNotificacionYHistorial({
+      userIds: [turno.usuarioId._id || turno.usuarioId],
+      tandaId: tanda._id,
+      usuarioId: turno.usuarioId._id || turno.usuarioId,
+      actorId: authId,
+      tipo: "turno_entrega",
+      origen: "evento",
+      titulo: "Te toca recibir tu tanda",
+      texto: `Ya puedes recibir el dinero de la tanda ${tanda.nombre}.`,
+      detalles: `Turno ${turno.numeroTurno} de la tanda ${tanda.nombre}.`,
+      pushTitle: "Te toca recibir tu tanda",
+      pushBody: `Ya puedes recibir el dinero de la tanda ${tanda.nombre}.`,
+      pushData: {
+        tipo: "turno_entrega",
+        tandaId: tanda._id.toString(),
+        numeroTurno: String(turno.numeroTurno),
+      },
+    });
+
+    res.status(200).json({
+      mensaje: "Notificacion de entrega enviada correctamente",
+      turno,
+    });
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "No se pudo notificar la entrega del turno",
+      detalle: error.message,
+    });
+  }
+};
+
+export const MarcarTurnoEntregado = async (req, res) => {
+  try {
+    const { tandaId, turnoId } = req.params;
+    const authId = req.usuario?.id;
+    const authRol = req.usuario?.rol;
+
+    const tanda = await Tandas_model.findById(tandaId)
+      .populate("turnosCobro.usuarioId", "nombre correo imagen");
+
+    if (!tanda) {
+      return res.status(404).json({
+        mensaje: "Tanda no encontrada",
+      });
+    }
+
+    if (
+      authRol !== "admin" ||
+      !authId ||
+      tanda.creador?.toString() !== authId.toString()
+    ) {
+      return res.status(403).json({
+        mensaje: "No tienes permiso para actualizar este turno",
+      });
+    }
+
+    const turno = (tanda.turnosCobro || []).find(
+      (item) => Number(item.numeroTurno) === Number(turnoId)
+    );
+
+    if (!turno) {
+      return res.status(404).json({
+        mensaje: "Turno no encontrado",
+      });
+    }
+
+    turno.estado = "entregado";
+    turno.fechaEntrega = new Date();
+    await tanda.save();
+
+    await crearNotificacionYHistorial({
+      userIds: [turno.usuarioId?._id || turno.usuarioId],
+      tandaId: tanda._id,
+      usuarioId: turno.usuarioId?._id || turno.usuarioId,
+      actorId: authId,
+      tipo: "turno_entrega",
+      origen: "evento",
+      titulo: "Entrega registrada",
+      texto: `Se marco como entregado el turno ${turno.numeroTurno} de la tanda ${tanda.nombre}.`,
+      detalles: "El administrador registro la entrega del dinero.",
+      pushTitle: "Entrega registrada",
+      pushBody: `Se marco la entrega de tu turno en ${tanda.nombre}.`,
+      pushData: {
+        tipo: "turno_entrega",
+        tandaId: tanda._id.toString(),
+        numeroTurno: String(turno.numeroTurno),
+        estado: "entregado",
+      },
+    });
+
+    res.status(200).json({
+      mensaje: "Turno marcado como entregado",
+      turno,
+    });
+  } catch (error) {
+    res.status(500).json({
+      mensaje: "No se pudo marcar el turno como entregado",
+      detalle: error.message,
+    });
+  }
+};
+
 export const ObtenerTandasPorUsuario = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -935,6 +1110,7 @@ export const ObtenerTandasPorUsuario = async (req, res) => {
     })
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
 
     res.status(200).json(
@@ -993,6 +1169,7 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
     })
       .populate("creador", "nombre correo imagen")
       .populate("integrantes", "nombre correo imagen")
+      .populate("turnosCobro.usuarioId", "nombre correo imagen")
       .populate("turnos.usuario", "nombre correo imagen");
 
     const tandaIds = tandas.map((item) => item._id);
@@ -1019,12 +1196,16 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
     const hoy = new Date();
 
     const tandasEnriquecidas = tandas.map((tanda) => {
-      const fechaPago = parseFechaTanda(tanda.fecha);
+      const calendarioPagos = Array.isArray(tanda.calendarioPagos) ? tanda.calendarioPagos : [];
+      const proximoPeriodoPago = calendarioPagos[0] || null;
+      const fechaPago = parseFechaTanda(
+        proximoPeriodoPago?.fechaPago || tanda.fechaInicio || tanda.fecha
+      );
       const ultimoComprobante = comprobantePorTanda.get(tanda._id.toString()) || null;
-      const integrantes = Array.isArray(tanda.integrantes) ? tanda.integrantes : [];
       const turnoActual = obtenerTurnoDeUsuario(tanda.turnos, userId);
       const turnoUsuario = turnoActual?.orden || null;
-      const montoRecibir = (Number(tanda.pago) || 0) * (Number(tanda.participantes) || 0);
+      const montoPago = Number(tanda.montoPago) || Number(tanda.pago) || 0;
+      const montoRecibir = montoPago * (Number(tanda.participantes) || 0);
 
       return {
         _id: tanda._id,
@@ -1036,13 +1217,20 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
           ultimoComprobante,
         }),
         fecha: tanda.fecha || "",
+        fechaInicio: tanda.fechaInicio || tanda.fecha || "",
         fechaPagoDate: fechaPago,
-        pago: Number(tanda.pago) || 0,
+        pago: montoPago,
+        montoPago,
         participantes: Number(tanda.participantes) || 0,
         turnoUsuario: turnoUsuario > 0 ? turnoUsuario : null,
         fechaTurnoUsuario: turnoActual?.fechaProgramada || "",
         estadoPagoTurno: turnoActual?.estadoPago || "pendiente",
         montoRecibir,
+        calendarioPagos,
+        claveInterbancaria: tanda.claveInterbancaria || "",
+        nombreBeneficiario: tanda.nombreBeneficiario || "",
+        banco: tanda.banco || "",
+        conceptoPago: tanda.conceptoPago || "",
       };
     });
 
@@ -1086,7 +1274,12 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
               tandaId: proximoPago._id,
               nombreTanda: proximoPago.nombre,
               monto: proximoPago.pago,
-              fechaLimite: proximoPago.fechaTurnoUsuario || proximoPago.fecha || "",
+              fechaLimite:
+                proximoPago.calendarioPagos?.[0]?.fechaPagoTexto ||
+                proximoPago.fechaTurnoUsuario ||
+                proximoPago.fechaInicio ||
+                proximoPago.fecha ||
+                "",
             }
           : null,
         proximoTurno: proximoTurno
@@ -1104,13 +1297,20 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
         estado: item.estado,
         estadoTexto: item.estadoTexto,
         fecha: item.fecha,
+        fechaInicio: item.fechaInicio,
         pago: item.pago,
+        montoPago: item.montoPago,
         pagoRealizados: tandas.find((tanda) => tanda._id.toString() === item._id.toString())?.pagoRealizados || 0,
         participantes: item.participantes,
         turnoUsuario: item.turnoUsuario,
         fechaTurnoUsuario: item.fechaTurnoUsuario,
         estadoPagoTurno: item.estadoPagoTurno,
         montoRecibir: item.montoRecibir,
+        calendarioPagos: item.calendarioPagos,
+        claveInterbancaria: item.claveInterbancaria,
+        nombreBeneficiario: item.nombreBeneficiario,
+        banco: item.banco,
+        conceptoPago: item.conceptoPago,
       })),
     });
   } catch (error) {
@@ -1144,7 +1344,30 @@ export const putTanda = async (req, res) => {
       });
     }
 
-    const ActualizarTanda = await Tandas_model.findByIdAndUpdate(req.params.id, req.body, {
+    const datosActualizados = { ...req.body };
+    const montoPago = Number(datosActualizados.montoPago || datosActualizados.pago || tandaActual.montoPago || tandaActual.pago || 0);
+    const fechaInicio = datosActualizados.fechaInicio || datosActualizados.fecha || tandaActual.fechaInicio || tandaActual.fecha;
+    const fechaInicioDate = parseFechaTanda(fechaInicio);
+    const frecuencia = datosActualizados.frecuencia || tandaActual.frecuencia || "quincenal";
+    const integrantes = Array.isArray(tandaActual.integrantes)
+      ? tandaActual.integrantes.map((item) => item.toString())
+      : [];
+    const programacion = construirProgramacionTanda({
+      integrantes,
+      fechaInicio: fechaInicioDate || fechaInicio,
+      frecuencia,
+      montoPago,
+    });
+
+    datosActualizados.pago = Number(datosActualizados.pago || montoPago);
+    datosActualizados.montoPago = montoPago;
+    datosActualizados.fecha = formatearFechaTexto(fechaInicioDate || fechaInicio);
+    datosActualizados.fechaInicio = fechaInicioDate || fechaInicio;
+    datosActualizados.calendarioPagos = programacion.calendarioPagos;
+    datosActualizados.turnosCobro = programacion.turnosCobro;
+    datosActualizados.turnos = programacion.turnos;
+
+    const ActualizarTanda = await Tandas_model.findByIdAndUpdate(req.params.id, datosActualizados, {
       new: true,
     });
 

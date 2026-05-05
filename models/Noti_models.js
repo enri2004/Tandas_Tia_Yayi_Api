@@ -18,6 +18,7 @@ const TIPOS_NOTIFICACION = [
   "pago_pendiente",
   "pago",
   "estado_pago",
+  "turno_entrega",
   "solicitud_amistad",
   "respuesta_amistad",
 ];
