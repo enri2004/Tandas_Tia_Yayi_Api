@@ -28,6 +28,7 @@ router.post("/auth/social", AuthSocialUser);
 router.get("/",ObtenerUsuario);
 router.get("/me", validarToken, ObtenerUsuarioActual);
 router.get("/buscar", validarToken, BuscarUsuarios);
+router.put("/push-token", validarToken, GuardarPushToken);
 router.post("/push-token", validarToken, GuardarPushToken);
 router.put("/rol", validarToken, ActualizarRolUsuario);
 router.get("/perfil/:id", validarToken, ObtenerPerfilUsuario);

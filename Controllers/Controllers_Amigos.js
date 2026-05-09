@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import UserModel from "../models/User_models.js";
 import { crearNotificacionYHistorial } from "../utils/notificationService.js";
 
-const AMIGO_SELECT = "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil telefono direccion ultimoAcceso";
+const AMIGO_SELECT =
+  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil avatar telefono direccion ultimoAcceso";
 
 const esObjectIdValido = (valor) => mongoose.Types.ObjectId.isValid(valor);
 
@@ -24,8 +25,9 @@ const perfilPublico = (usuario) => ({
   usuario: usuario.usuario,
   tipoUsuario: usuario.tipoUsuario,
   rol: usuario.rol,
-  imagen: usuario.fotoPerfil || usuario.imagen,
-  fotoPerfil: usuario.fotoPerfil || usuario.imagen,
+  imagen: usuario.fotoPerfil || usuario.imagen || usuario.avatar || "",
+  fotoPerfil: usuario.fotoPerfil || usuario.imagen || usuario.avatar || "",
+  avatar: usuario.fotoPerfil || usuario.imagen || usuario.avatar || "",
   telefono: usuario.telefono,
   direccion: usuario.direccion,
   ultimoAcceso: usuario.ultimoAcceso,

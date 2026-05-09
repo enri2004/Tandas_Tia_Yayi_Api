@@ -1,7 +1,8 @@
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 
 const esExpoPushTokenValido = (token = "") =>
-  typeof token === "string" && token.startsWith("ExponentPushToken[");
+  typeof token === "string" &&
+  (token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken["));
 
 export const enviarPushNotification = async ({
   tokens = [],

@@ -9,7 +9,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "123456789abc";
 const PERFIL_SELECT =
   "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil proveedorAuth telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
 
-const obtenerFotoUsuario = (usuario) => usuario?.fotoPerfil || usuario?.imagen || "";
+const obtenerFotoUsuario = (usuario) =>
+  usuario?.fotoPerfil || usuario?.imagen || usuario?.avatar || "";
 
 const obtenerPerfilActualizado = (usuario) =>
   typeof usuario?.perfilActualizado === "boolean"
@@ -25,6 +26,10 @@ const obtenerMostrarModalActualizarDatos = (usuario) =>
   typeof usuario?.mostrarModalActualizarDatos === "boolean"
     ? usuario.mostrarModalActualizarDatos
     : !obtenerPerfilActualizado(usuario);
+
+const esExpoPushTokenValido = (token = "") =>
+  typeof token === "string" &&
+  (token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken["));
 
 const normalizarBooleano = (valor) => {
   if (typeof valor === "boolean") return valor;
@@ -47,6 +52,7 @@ const construirPerfilUsuario = (usuario) => ({
   rol: usuario.rol,
   imagen: obtenerFotoUsuario(usuario),
   fotoPerfil: obtenerFotoUsuario(usuario),
+  avatar: obtenerFotoUsuario(usuario),
   proveedorAuth: usuario.proveedorAuth || "local",
   telefono: usuario.telefono,
   direccion: usuario.direccion,
@@ -305,6 +311,7 @@ export const LoginUser = async (req, res) => {
         tipoUsuario: usuarioEncontrado.tipoUsuario,
         imagen: obtenerFotoUsuario(usuarioEncontrado),
         fotoPerfil: obtenerFotoUsuario(usuarioEncontrado),
+        avatar: obtenerFotoUsuario(usuarioEncontrado),
         perfilActualizado: obtenerPerfilActualizado(usuarioEncontrado),
         mostrarModalActualizarDatos: obtenerMostrarModalActualizarDatos(usuarioEncontrado),
       },
@@ -715,7 +722,7 @@ export const BuscarUsuarios = async (req, res) => {
     }
 
     const usuarios = await UserModel.find(criterio)
-      .select("nombre correo usuario imagen tipoUsuario rol")
+      .select("nombre correo usuario imagen fotoPerfil avatar tipoUsuario rol")
       .limit(25)
       .sort({ nombre: 1 });
 
@@ -737,7 +744,9 @@ export const BuscarUsuarios = async (req, res) => {
         nombre: item.nombre,
         correo: item.correo,
         usuario: item.usuario,
-        imagen: item.imagen,
+        imagen: obtenerFotoUsuario(item),
+        fotoPerfil: obtenerFotoUsuario(item),
+        avatar: obtenerFotoUsuario(item),
         tipoUsuario: item.tipoUsuario,
         rol: item.rol,
         esAmigo: amigosIds.has(item._id.toString()),
@@ -757,7 +766,7 @@ export const BuscarUsuarios = async (req, res) => {
 export const GuardarPushToken = async (req, res) => {
   try {
     const { expoPushToken } = req.body;
-    const authId = req.user?.id || req.usuario?.id || req.user?._id;
+    const authId = req.usuario?.id || req.user?.id || req.user?._id;
 
     console.log("[Push][Backend] Usuario autenticado:", authId || "SIN_USUARIO");
     console.log("[Push][Backend] Token recibido:", expoPushToken || "VACIO");
@@ -768,8 +777,16 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
+    if (!esExpoPushTokenValido(expoPushToken)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El expoPushToken no tiene un formato valido",
+      });
+    }
+
     if (!authId) {
       return res.status(401).json({
+        ok: false,
         mensaje: "No hay un usuario autenticado",
       });
     }
@@ -787,6 +804,7 @@ export const GuardarPushToken = async (req, res) => {
 
     if (!usuario) {
       return res.status(404).json({
+        ok: false,
         mensaje: "Usuario no encontrado",
       });
     }
@@ -794,6 +812,7 @@ export const GuardarPushToken = async (req, res) => {
     console.log("[Push][Backend] Tokens despues:", usuario.expoPushTokens || []);
 
     res.json({
+      ok: true,
       mensaje: "Push token guardado correctamente",
       expoPushTokens: usuario.expoPushTokens,
       totalTokens: usuario.expoPushTokens.length,
@@ -802,6 +821,7 @@ export const GuardarPushToken = async (req, res) => {
   } catch (error) {
     console.error("[Push][Backend] Error guardando push token:", error);
     res.status(500).json({
+      ok: false,
       mensaje: "Error guardando push token",
       error: error.message,
     });
