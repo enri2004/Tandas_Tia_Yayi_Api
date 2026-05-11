@@ -766,9 +766,9 @@ export const BuscarUsuarios = async (req, res) => {
 export const GuardarPushToken = async (req, res) => {
   try {
     const { expoPushToken } = req.body;
-    const authId = req.usuario?.id || req.user?.id || req.user?._id;
+    const userId = req.usuario?.id || req.usuario?._id || req.user?.id || req.user?._id;
 
-    console.log("[Push][Backend] Usuario autenticado:", authId || "SIN_USUARIO");
+    console.log("[Push][Backend] Usuario autenticado:", userId || "SIN_USUARIO");
     console.log("[Push][Backend] Token recibido:", expoPushToken || "VACIO");
 
     if (!expoPushToken) {
@@ -784,23 +784,25 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
-    if (!authId) {
+    if (!userId) {
       return res.status(401).json({
         ok: false,
         mensaje: "No hay un usuario autenticado",
       });
     }
 
-    const usuarioAntes = await UserModel.findById(authId).select("expoPushTokens");
-    console.log("[Push][Backend] Tokens antes:", usuarioAntes?.expoPushTokens || []);
+    await UserModel.updateMany(
+      { _id: { $ne: userId } },
+      { $pull: { expoPushTokens: expoPushToken } }
+    );
 
     const usuario = await UserModel.findByIdAndUpdate(
-      authId,
+      userId,
       {
         $addToSet: { expoPushTokens: expoPushToken },
       },
       { new: true }
-    ).select("-password");
+    ).select("nombre correo rol expoPushTokens");
 
     if (!usuario) {
       return res.status(404).json({
@@ -809,21 +811,22 @@ export const GuardarPushToken = async (req, res) => {
       });
     }
 
-    console.log("[Push][Backend] Tokens despues:", usuario.expoPushTokens || []);
+    console.log("[PushToken] Guardado en usuario actual:", {
+      userId,
+      correo: usuario?.correo,
+      tokens: usuario?.expoPushTokens?.length || 0,
+    });
 
-    res.json({
+    return res.json({
       ok: true,
-      mensaje: "Push token guardado correctamente",
-      expoPushTokens: usuario.expoPushTokens,
-      totalTokens: usuario.expoPushTokens.length,
+      mensaje: "ExpoPushToken guardado correctamente",
       usuario,
     });
   } catch (error) {
-    console.error("[Push][Backend] Error guardando push token:", error);
-    res.status(500).json({
+    console.log("[PushToken] Error:", error);
+    return res.status(500).json({
       ok: false,
-      mensaje: "Error guardando push token",
-      error: error.message,
+      mensaje: "Error guardando ExpoPushToken",
     });
   }
 };
