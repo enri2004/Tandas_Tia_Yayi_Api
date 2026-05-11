@@ -1,21 +1,13 @@
-const FRECUENCIAS_VALIDAS = ["semanal", "quincenal", "mensual"];
+import {
+  FRECUENCIAS_TANDA,
+  parseFechaTanda,
+  sumarFrecuenciaFecha,
+} from "../fechas/calcularFechasTanda.js";
 
-export function sumarFecha(fecha, frecuencia, index) {
-  const nueva = new Date(fecha);
+const FRECUENCIAS_VALIDAS = FRECUENCIAS_TANDA;
 
-  if (frecuencia === "semanal") {
-    nueva.setDate(nueva.getDate() + 7 * index);
-  }
-
-  if (frecuencia === "quincenal") {
-    nueva.setDate(nueva.getDate() + 15 * index);
-  }
-
-  if (frecuencia === "mensual") {
-    nueva.setMonth(nueva.getMonth() + index);
-  }
-
-  return nueva;
+export function sumarFecha(fecha, frecuencia, numeroTurno) {
+  return sumarFrecuenciaFecha(fecha, frecuencia, numeroTurno);
 }
 
 export function generarCalendarioPagos({
@@ -28,10 +20,15 @@ export function generarCalendarioPagos({
   const frecuenciaNormalizada = FRECUENCIAS_VALIDAS.includes(frecuencia)
     ? frecuencia
     : "quincenal";
+  const fechaBase = parseFechaTanda(fechaInicio);
+
+  if (!fechaBase) {
+    return [];
+  }
 
   return Array.from({ length: totalPeriodos }, (_, index) => ({
     numeroPago: index + 1,
-    fechaPago: sumarFecha(fechaInicio, frecuenciaNormalizada, index),
+    fechaPago: sumarFecha(fechaBase, frecuenciaNormalizada, index + 1),
     monto: Number(montoPago) || 0,
     estado: "pendiente",
     usuariosPagaron: [],
@@ -48,12 +45,17 @@ export function generarTurnosCobro({
   const frecuenciaNormalizada = FRECUENCIAS_VALIDAS.includes(frecuencia)
     ? frecuencia
     : "quincenal";
+  const fechaBase = parseFechaTanda(fechaInicio);
   const totalIntegrantes = integrantes.length;
+
+  if (!fechaBase) {
+    return [];
+  }
 
   return integrantes.map((usuarioId, index) => ({
     numeroTurno: index + 1,
     usuarioId,
-    fechaCobro: sumarFecha(fechaInicio, frecuenciaNormalizada, index),
+    fechaCobro: sumarFecha(fechaBase, frecuenciaNormalizada, index + 1),
     montoARecibir: (Number(montoPago) || 0) * totalIntegrantes,
     estado: "pendiente",
   }));

@@ -10,19 +10,50 @@ import { crearNotificacionYHistorial } from "../utils/notificationService.js";
 import {
   generarCalendarioPagos,
   generarTurnosCobro,
-  sumarFecha,
 } from "../utils/tandas/generarCalendarioTanda.js";
-
-const parseFechaTanda = (valor) => {
-  if (!valor) return null;
-  const fecha = new Date(valor);
-  return Number.isNaN(fecha.getTime()) ? null : fecha;
-};
+import {
+  formatearFechaISO,
+  parseFechaTanda,
+} from "../utils/fechas/calcularFechasTanda.js";
 
 const formatearFechaTexto = (valor) => {
   const fecha = parseFechaTanda(valor);
   if (!fecha) return "";
-  return fecha.toISOString().split("T")[0];
+  return formatearFechaISO(fecha);
+};
+
+const normalizarTandaFechas = (tanda) => {
+  if (!tanda) {
+    return null;
+  }
+
+  const data = typeof tanda.toObject === "function" ? tanda.toObject() : { ...tanda };
+
+  return {
+    ...data,
+    fecha: formatearFechaTexto(data.fecha || data.fechaInicio),
+    fechaInicio: formatearFechaTexto(data.fechaInicio || data.fecha),
+    calendarioPagos: Array.isArray(data.calendarioPagos)
+      ? data.calendarioPagos.map((item) => ({
+          ...item,
+          fechaPago: formatearFechaTexto(item?.fechaPago),
+          fechaPagoTexto: formatearFechaTexto(item?.fechaPago),
+        }))
+      : [],
+    turnosCobro: Array.isArray(data.turnosCobro)
+      ? data.turnosCobro.map((turno) => ({
+          ...turno,
+          fechaCobro: formatearFechaTexto(turno?.fechaCobro),
+          fechaCobroTexto: formatearFechaTexto(turno?.fechaCobro),
+        }))
+      : [],
+    turnos: Array.isArray(data.turnos)
+      ? data.turnos.map((turno) => ({
+          ...turno,
+          fechaProgramada: formatearFechaTexto(turno?.fechaProgramada),
+        }))
+      : [],
+  };
 };
 
 const construirProgramacionTanda = ({
@@ -445,7 +476,7 @@ export const ObtenerTandaPorId = async (req, res) => {
       });
     }
 
-    res.json(tanda);
+    res.json(normalizarTandaFechas(tanda));
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -477,7 +508,7 @@ export const ObtenerTandaPorCodigo = async (req, res) => {
       });
     }
 
-    return res.status(200).json(tanda);
+    return res.status(200).json(normalizarTandaFechas(tanda));
   } catch (error) {
     return res.status(500).json({
       mensaje: "Error al buscar la tanda por codigo",
@@ -671,10 +702,12 @@ export const NuevaTanda = async (req, res) => {
 
     res.status(201).json({
       mensaje: "Tanda creada correctamente",
-      tanda: await Tandas_model.findById(nuevaTanda._id)
+      tanda: normalizarTandaFechas(
+        await Tandas_model.findById(nuevaTanda._id)
         .populate("creador", "nombre correo imagen")
         .populate("integrantes", "nombre correo imagen")
-        .populate("turnos.usuario", "nombre correo imagen"),
+        .populate("turnos.usuario", "nombre correo imagen")
+      ),
     });
   } catch (error) {
     console.error(error);
@@ -747,7 +780,7 @@ export const UnirseATanda = async (req, res) => {
 
       return res.status(200).json({
         mensaje: "Ya estas unido a esta tanda",
-        tanda: tandaActualizada,
+        tanda: normalizarTandaFechas(tandaActualizada),
         yaUnido: true,
         totalIntegrantes: tandaActualizada?.integrantes?.length || 0,
       });
@@ -811,7 +844,7 @@ export const UnirseATanda = async (req, res) => {
 
     res.status(200).json({
       mensaje: "Te uniste a la tanda correctamente",
-      tanda: tandaActualizada,
+      tanda: normalizarTandaFechas(tandaActualizada),
       yaUnido: false,
       totalIntegrantes: tandaActualizada?.integrantes?.length || 0,
     });
@@ -924,7 +957,7 @@ export const AsignarTurnosTanda = async (req, res) => {
       mensaje: aleatorio
         ? "Turnos asignados aleatoriamente"
         : "Turnos asignados correctamente",
-      tanda: tandaActualizada,
+      tanda: normalizarTandaFechas(tandaActualizada),
     });
   } catch (error) {
     return res.status(500).json({
@@ -1115,10 +1148,11 @@ export const ObtenerTandasPorUsuario = async (req, res) => {
 
     res.status(200).json(
       tandas.map((tanda) => {
+        const tandaNormalizada = normalizarTandaFechas(tanda);
         const turnoActual = obtenerTurnoDeUsuario(tanda.turnos, userId);
 
         return {
-          ...tanda.toObject(),
+          ...tandaNormalizada,
           turnoUsuario: turnoActual?.orden || null,
           fechaTurnoUsuario: turnoActual?.fechaProgramada || "",
           estadoPagoTurno: turnoActual?.estadoPago || "pendiente",
@@ -1217,7 +1251,7 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
           ultimoComprobante,
         }),
         fecha: tanda.fecha || "",
-        fechaInicio: tanda.fechaInicio || tanda.fecha || "",
+        fechaInicio: formatearFechaTexto(tanda.fechaInicio || tanda.fecha),
         fechaPagoDate: fechaPago,
         pago: montoPago,
         montoPago,
@@ -1226,7 +1260,11 @@ export const ObtenerResumenDashboardUsuario = async (req, res) => {
         fechaTurnoUsuario: turnoActual?.fechaProgramada || "",
         estadoPagoTurno: turnoActual?.estadoPago || "pendiente",
         montoRecibir,
-        calendarioPagos,
+        calendarioPagos: calendarioPagos.map((item) => ({
+          ...item,
+          fechaPago: formatearFechaTexto(item?.fechaPago),
+          fechaPagoTexto: formatearFechaTexto(item?.fechaPago),
+        })),
         claveInterbancaria: tanda.claveInterbancaria || "",
         nombreBeneficiario: tanda.nombreBeneficiario || "",
         banco: tanda.banco || "",
@@ -1377,7 +1415,7 @@ export const putTanda = async (req, res) => {
       });
     }
 
-    res.json(ActualizarTanda);
+    res.json(normalizarTandaFechas(ActualizarTanda));
   } catch (error) {
     res.status(500).json({
       mensaje: "No se actualizaron los datos",
@@ -1471,7 +1509,7 @@ export const FinalizarTanda = async (req, res) => {
 
     res.json({
       mensaje: "Tanda finalizada correctamente",
-      tanda: tandaActualizada,
+      tanda: normalizarTandaFechas(tandaActualizada),
     });
   } catch (error) {
     res.status(500).json({
