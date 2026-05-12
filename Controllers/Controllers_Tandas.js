@@ -1487,20 +1487,27 @@ export const FinalizarTanda = async (req, res) => {
     tanda.estado = false;
     await tanda.save();
 
-    await crearNotificacionYHistorial({
-      userIds: (tanda.integrantes || []).map((item) => item.toString()),
-      tandaId: tanda._id,
-      usuarioId: authId,
-      actorId: authId,
-      tipo: "tanda_finalizada",
-      origen: "evento",
-      titulo: "Tanda finalizada",
-      texto: `La tanda ${tanda.nombre} fue finalizada por su administrador.`,
-      detalles: "Consulta el estado final desde tu panel.",
-      metadata: {
-        evento: "tanda_finalizada",
-      },
-    });
+    try {
+      await crearNotificacionYHistorial({
+        userIds: (tanda.integrantes || []).map((item) => item.toString()),
+        tandaId: tanda._id,
+        usuarioId: authId,
+        actorId: authId,
+        tipo: "tanda_finalizada",
+        origen: "evento",
+        titulo: "Tanda finalizada",
+        texto: `La tanda ${tanda.nombre} fue finalizada por su administrador.`,
+        detalles: "Consulta el estado final desde tu panel.",
+        metadata: {
+          evento: "tanda_finalizada",
+        },
+      });
+    } catch (notificationError) {
+      console.error("[FinalizarTanda] La tanda se finalizo pero fallo la notificacion:", {
+        tandaId: tanda._id?.toString?.(),
+        error: notificationError?.message || notificationError,
+      });
+    }
 
     const tandaActualizada = await Tandas_model.findById(req.params.id)
       .populate("creador", "nombre correo imagen")
