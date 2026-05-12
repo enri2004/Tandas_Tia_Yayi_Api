@@ -51,6 +51,16 @@ const UserSchema = new mongoose.Schema(
       enum: ["google", "facebook", "local", ""],
       default: "local",
     },
+    googleId: {
+      type: String,
+      default: "",
+      index: true,
+    },
+    facebookId: {
+      type: String,
+      default: "",
+      index: true,
+    },
     public_id: {
       type: String,
       default: "",

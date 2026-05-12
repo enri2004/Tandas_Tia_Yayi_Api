@@ -7,7 +7,7 @@ import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET || "123456789abc";
 const PERFIL_SELECT =
-  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil proveedorAuth telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
+  "nombre edad correo usuario tipoUsuario rol imagen fotoPerfil proveedorAuth googleId facebookId telefono direccion ultimoAcceso perfilActualizado mostrarModalActualizarDatos amigos solicitudesEnviadas solicitudesRecibidas createdAt updatedAt";
 
 const obtenerFotoUsuario = (usuario) =>
   usuario?.fotoPerfil || usuario?.imagen || usuario?.avatar || "";
@@ -54,6 +54,8 @@ const construirPerfilUsuario = (usuario) => ({
   fotoPerfil: obtenerFotoUsuario(usuario),
   avatar: obtenerFotoUsuario(usuario),
   proveedorAuth: usuario.proveedorAuth || "local",
+  googleId: usuario.googleId || "",
+  facebookId: usuario.facebookId || "",
   telefono: usuario.telefono,
   direccion: usuario.direccion,
   ultimoAcceso: usuario.ultimoAcceso,
@@ -333,6 +335,8 @@ export const AuthSocialUser = async (req, res) => {
       correo = "",
       fotoPerfil = "",
       proveedorAuth = "",
+      googleId = "",
+      facebookId = "",
     } = req.body;
 
     const nombreNormalizado = nombre.toString().trim();
@@ -363,6 +367,8 @@ export const AuthSocialUser = async (req, res) => {
 
     let usuario = await UserModel.findOne({ correo: correoNormalizado });
     let mensaje = "Inicio de sesión social correcto";
+    const googleIdNormalizado = googleId?.toString?.().trim?.() || "";
+    const facebookIdNormalizado = facebookId?.toString?.().trim?.() || "";
 
     if (!usuario) {
       const passwordTemporal = crypto.randomBytes(24).toString("hex");
@@ -378,13 +384,15 @@ export const AuthSocialUser = async (req, res) => {
         usuario: usernameDisponible,
         password: await bcrypt.hash(passwordTemporal, salt),
         proveedorAuth: proveedor,
+        googleId: proveedor === "google" ? googleIdNormalizado : "",
+        facebookId: proveedor === "facebook" ? facebookIdNormalizado : "",
         fotoPerfil: fotoPerfil?.toString?.().trim?.() || "",
         imagen: fotoPerfil?.toString?.().trim?.() || "",
         edad: null,
         direccion: "",
         telefono: "",
-        rol: null,
-        tipoUsuario: "",
+        rol: "usuario",
+        tipoUsuario: "unirse",
         perfilActualizado: false,
         mostrarModalActualizarDatos: true,
         expoPushTokens: [],
@@ -394,6 +402,18 @@ export const AuthSocialUser = async (req, res) => {
     } else {
       usuario.nombre = nombreNormalizado || usuario.nombre;
       usuario.proveedorAuth = proveedor;
+      if (!usuario.rol) {
+        usuario.rol = "usuario";
+      }
+      if (!usuario.tipoUsuario) {
+        usuario.tipoUsuario = "unirse";
+      }
+      if (proveedor === "google" && googleIdNormalizado) {
+        usuario.googleId = googleIdNormalizado;
+      }
+      if (proveedor === "facebook" && facebookIdNormalizado) {
+        usuario.facebookId = facebookIdNormalizado;
+      }
 
       const fotoProveedor = fotoPerfil?.toString?.().trim?.() || "";
       if (fotoProveedor) {
